@@ -1,0 +1,6 @@
+build/
+prebuilds/
+node_modules/
+package-lock.json
+example.db
+output

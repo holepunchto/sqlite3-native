@@ -1,0 +1,32 @@
+{
+  "private": true,
+  "name": "sqlite-vfs-testing",
+  "version": "1.0.0",
+  "description": "Testing VFS extensions with SQLite",
+  "exports": "./index.js",
+  "files": [
+    "index.js",
+    "binding.c",
+    "binding.js",
+    "CMakeLists.txt",
+    "prebuilds"
+  ],
+  "addon": true,
+  "scripts": {
+    "test": "standard && bare test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holepunchto/bare-addon.git"
+  },
+  "author": "Holepunch",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/holepunchto/bare-addon/issues"
+  },
+  "homepage": "https://github.com/holepunchto/bare-addon#readme",
+  "devDependencies": {
+    "brittle": "^3.4.0",
+    "standard": "^17.0.0"
+  }
+}
