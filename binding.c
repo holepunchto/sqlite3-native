@@ -101,11 +101,11 @@ generate_database (js_env_t *env, js_callback_info_t *info) {
       fprintf(stdout, "Table created successfully\n");
   }
 
-  int inserts = 10000;
-  int updates = 100;
+  int inserts = 3;
+  int updates = 0;
 
   // Insert N records into the table
-  for (int i = 0; i < inserts; i++) {
+  for (int i = inserts - 1; i >= 0; i--) {
       printf("writing record %d\n", i);
       char insert_sql[1024];
       sprintf(insert_sql, "INSERT INTO " TABLE_NAME " (NAME, VALUE) VALUES ('Record %d', %d);", i, i*10);
