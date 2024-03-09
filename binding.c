@@ -101,7 +101,7 @@ generate_database (js_env_t *env, js_callback_info_t *info) {
       fprintf(stdout, "Table created successfully\n");
   }
 
-  int inserts = 250;
+  int inserts = 2500;
   int updates = 0;
 
   // Insert N records into the table

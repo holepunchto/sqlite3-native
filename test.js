@@ -125,7 +125,7 @@ function diff (n, o) {
 
     if (j === -1) {
       cells.splice(i, 1)
-      changes.push({ type: 'delete', index: i })
+      changes.push({ type: 'delete', index: i, buffer: e.buffer })
       i--
     }
   }
@@ -144,9 +144,9 @@ function diff (n, o) {
 
     changes.push({ type: 'move', index: i, from: j })
 
-    for (; j > i; j--) {
-      cells[j] = cells[--j]
-      cells[j] = e
+    for (let k = j; k > i; k--) {
+      cells[k] = cells[--k]
+      cells[k] = e
     }
   }
 
@@ -158,7 +158,8 @@ function diff (n, o) {
     if (a.type === 'delete' && b.type === 'insert') {
       if (a.index === b.index) {
         changes.shift()
-        b.type = 'overwrite'
+        b.type = 'update'
+        b.prev = a.buffer
       }
     }
   }
