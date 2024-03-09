@@ -52,13 +52,14 @@ const BTreePage = {
 
     const cells = new Array(numberOfCells)
 
-    if (type === 13) {
-      let end = state.buffer.byteLength
+    let end = state.buffer.byteLength
 
-      for (let i = 0; i < cells.length; i++) {
-        const start = uint16be.decode(state)
-        const buffer = state.buffer.subarray(start, end)
-        const cellState = { start, end, buffer: state.buffer }
+    for (let i = 0; i < cells.length; i++) {
+      const start = uint16be.decode(state)
+      const buffer = state.buffer.subarray(start, end)
+      const cellState = { start, end, buffer: state.buffer }
+
+      if (type === 13) {
         const length = varint.decode(cellState)
         const key = varint.decode(cellState)
         const free = state.end - start.start
@@ -71,16 +72,25 @@ const BTreePage = {
           byteOffset: start,
           byteLength: cellState.end,
           buffer,
-          length,
-          key,
-          overflow,
-          overflowPage,
-          initialPortion,
-          initialPortionString: initialPortion.toString()
+          tableLeaf: {
+            key,
+            length,
+            overflow,
+            overflowPage,
+            initialPortion,
+            initialPortionString: initialPortion.toString()
+          }
         }
-
-        end = start
+      } else {
+        cells[i] = {
+          byteOffset: start,
+          byteLength: cellState.end,
+          buffer,
+          tableLeaf: null
+        }
       }
+
+      end = start
     }
 
     return {
@@ -102,34 +112,69 @@ function diff (n, o) {
 
   if (!o) {
     for (const e of n.cells) {
-      changes.push({ type: 'put', key: e.key, buffer: e.buffer })
+      changes.push({ type: 'insert', index: changes.length, buffer: e.buffer })
     }
     return changes
   }
 
-  const touched = new Set()
-  for (const e of n.cells) {
-    if (hasCell(o, e)) continue
-    touched.add(e.key)
-    changes.push({ type: 'put', key: e.key, buffer: e.buffer })
+  const cells = o.cells.slice(0)
+
+  for (let i = 0; i < cells.length; i++) {
+    const e = cells[i]
+    const j = indexOfCell(n.cells, e)
+
+    if (j === -1) {
+      cells.splice(i, 1)
+      changes.push({ type: 'delete', index: i })
+      i--
+    }
   }
 
-  for (const e of o.cells) {
-    if (touched.has(e.key)) continue
-    if (hasCell(n, e)) continue
-    changes.push({ type: 'del', key: e.key, buffer: null })
+  for (let i = 0; i < n.cells.length; i++) {
+    const e = n.cells[i]
+    const j = indexOfCell(cells, e)
+
+    if (j === i) continue
+
+    if (j === -1) {
+      cells.splice(i, 0, e)
+      changes.push({ type: 'insert', index: i, buffer: e.buffer })
+      continue
+    }
+
+    changes.push({ type: 'move', index: i, from: j })
+
+    for (; j > i; j--) {
+      cells[j] = cells[--j]
+      cells[j] = e
+    }
+  }
+
+  // quick dedup thing, can prop be a lot better...
+  if (changes.length >= 2) {
+    const a = changes[0]
+    const b = changes[1]
+
+    if (a.type === 'delete' && b.type === 'insert') {
+      if (a.index === b.index) {
+        changes.shift()
+        b.type = 'overwrite'
+      }
+    }
   }
 
   return changes
 }
 
-function hasCell (page, e) {
+function indexOfCell (cells, e) {
   // TODO: bisect
-  for (const c of page.cells) {
-    if (c.key === e.key && c.buffer.equals(e.buffer)) return true
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]
+    if (c === null) continue
+    if (c.buffer.equals(e.buffer)) return i
   }
 
-  return false
+  return -1
 }
 
 function parseBTree (index, buf) {
