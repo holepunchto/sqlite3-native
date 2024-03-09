@@ -41,7 +41,7 @@ const varint = {
   }
 }
 
-const BTreeHeader = {
+const BTreePage = {
   decode (state) {
     const type = c.uint8.decode(state)
     const firstFreeBlock = uint16be.decode(state)
@@ -51,17 +51,13 @@ const BTreeHeader = {
     const rightMostPointer = (type === 2 || type === 5) ? uint32be.decode(state) : 0
 
     const cells = new Array(numberOfCells)
-    const cellValues = new Array(numberOfCells)
-
-    for (let i = 0; i < cells.length; i++) {
-      cells[i] = uint16be.decode(state)
-    }
 
     if (type === 13) {
       let end = state.buffer.byteLength
-      let i = 0
 
-      for (const start of cells) {
+      for (let i = 0; i < cells.length; i++) {
+        const start = uint16be.decode(state)
+        const buffer = state.buffer.subarray(start, end)
         const cellState = { start, end, buffer: state.buffer }
         const length = varint.decode(cellState)
         const key = varint.decode(cellState)
@@ -71,7 +67,10 @@ const BTreeHeader = {
         if (overflow) cellState.start = cellState.end - 4
         const overflowPage = overflow ? uint32be.decode(cellState) : 0
 
-        cellValues[i++] = {
+        cells[i] = {
+          byteOffset: start,
+          byteLength: cellState.end,
+          buffer,
           length,
           key,
           overflow,
@@ -91,18 +90,58 @@ const BTreeHeader = {
       startOfCellContent,
       fragmentedFreeBytes,
       rightMostPointer,
-      cells,
-      cellValues
+      cells
     }
   }
 }
 
+const pages = new Map()
+
+function diff (n, o) {
+  const changes = []
+
+  if (!o) {
+    for (const e of n.cells) {
+      changes.push({ type: 'put', key: e.key, buffer: e.buffer })
+    }
+    return changes
+  }
+
+  const touched = new Set()
+  for (const e of n.cells) {
+    if (hasCell(o, e)) continue
+    touched.add(e.key)
+    changes.push({ type: 'put', key: e.key, buffer: e.buffer })
+  }
+
+  for (const e of o.cells) {
+    if (touched.has(e.key)) continue
+    if (hasCell(n, e)) continue
+    changes.push({ type: 'del', key: e.key, buffer: null })
+  }
+
+  return changes
+}
+
+function hasCell (page, e) {
+  // TODO: bisect
+  for (const c of page.cells) {
+    if (c.key === e.key && c.buffer.equals(e.buffer)) return true
+  }
+
+  return false
+}
+
 function parseBTree (index, buf) {
-  const state = { start: 0, end: buf.byteLength, buffer: buf }
+  const state = { start: 0, end: buf.byteLength, buffer: Buffer.from(buf) } // copy
 
-  const header = BTreeHeader.decode(state)
+  const bt = BTreePage.decode(state)
 
-  console.log('btree', index, header)
+  const old = pages.get(index)
+
+  pages.set(index, bt)
+
+  console.log('btree', index, diff(bt, old))
 }
 
 function trace (filename, arrayBuf, offset) {
@@ -111,7 +150,7 @@ function trace (filename, arrayBuf, offset) {
   const buf = Buffer.from(arrayBuf)
 
   if (offset === 0) {
-    console.log(buf.slice(32, 36))
+    console.log('page 0 stuff', buf.slice(32, 36))
     return
   }
 
