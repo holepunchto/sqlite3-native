@@ -57,7 +57,7 @@ module.exports = class BareSQLite3 extends ReadyResource {
     console.log('JS WRITE:', { filetype, offset, byteLength: buffer.byteLength })
   }
 
-  _exec (query) {
-
+  exec (query) {
+    binding.bare_sqlite3_exec(this._handle, b4a.byteLength(query), query)
   }
 }

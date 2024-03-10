@@ -319,6 +319,21 @@ bare_sqlite3_close (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 bare_sqlite3_exec (js_env_t *env, js_callback_info_t *info) {
+  size_t argc = 2;
+  js_value_t *argv[2];  
+
+  js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+
+  bare_sqlite3_t *self;
+  size_t self_len;
+
+  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, &self_len, NULL, NULL);
+
+  size_t query_length;
+  js_get_value_string_utf8(env, argv[1],  )
+
+  js_create_reference(env, argv[1], 1, &(self->ctx));
+
   return NULL;  
 }
 
