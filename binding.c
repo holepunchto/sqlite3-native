@@ -9,6 +9,7 @@
 typedef struct {
   sqlite3 *db;  
   sqlite3_vfs *vfs;
+  js_env_t *env;
   js_ref_t *ctx;
   js_ref_t *on_vfs_read;
   js_ref_t *on_vfs_write;
@@ -20,15 +21,60 @@ typedef struct {
   int filetype;
 } vfs_file_t;
 
+static void
+noop_finalizer (js_env_t *env, void *data, void *hint) {
+}
+
 static int
 vfs_file_read (sqlite3_file *pFile, void *zBuf, int iAmt, sqlite3_int64 iOfst) {
-  printf("in vfs_file_read\n");
+  vfs_file_t *file = (vfs_file_t*) pFile;
+  bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
+
+  js_value_t *ctx;
+  js_value_t *callback;
+  js_get_reference_value(self->env, self->ctx, &ctx);
+  js_get_reference_value(self->env, self->on_vfs_read, &callback);
+
+  js_handle_scope_t *scope;
+  js_open_handle_scope(self->env, &scope);
+
+  js_value_t *args[3];
+  js_create_uint32(self->env, file->filetype, &args[0]);
+  js_create_external_arraybuffer(self->env, zBuf, iAmt, noop_finalizer, NULL, &args[1]);
+  // Need something larger
+  js_create_uint32(self->env, iOfst, &args[2]);
+
+  js_call_function(self->env, ctx, callback, 3, args, NULL);
+
+  js_close_handle_scope(self->env, scope);
+
   return SQLITE_OK;  
 }
 
 static int
 vfs_file_write (sqlite3_file *pFile, const void *zBuf, int iAmt, sqlite_int64 iOfst) {
-  printf("in vfs_file_write\n");
+  printf("in vfs_file_write here\n");
+  vfs_file_t *file = (vfs_file_t*) pFile;
+  bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
+
+  js_value_t *ctx;
+  js_value_t *callback;
+  js_get_reference_value(self->env, self->ctx, &ctx);
+  js_get_reference_value(self->env, self->on_vfs_write, &callback);
+
+  js_handle_scope_t *scope;
+  js_open_handle_scope(self->env, &scope);
+
+  js_value_t *args[3];
+  js_create_uint32(self->env, file->filetype, &args[0]);
+  js_create_external_arraybuffer(self->env, (void*) zBuf, iAmt, noop_finalizer, NULL, &args[1]);
+  // Need something larger
+  js_create_uint32(self->env, iOfst, &args[2]);
+
+  js_call_function(self->env, ctx, callback, 3, args, NULL);
+
+  js_close_handle_scope(self->env, scope);
+
   return SQLITE_OK;  
 } 
 
@@ -223,8 +269,8 @@ bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
 
   bare_sqlite3_t *self;
   size_t self_len;
-  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, &self_len, NULL, NULL);
 
+  js_get_typedarray_info(env, argv[0], NULL, (void **) &self, &self_len, NULL, NULL);
   js_create_reference(env, argv[1], 1, &(self->ctx));
 
   utf8_t name[1024];
@@ -233,6 +279,7 @@ bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
   js_create_reference(env, argv[3], 1, &(self->on_vfs_read));
   js_create_reference(env, argv[4], 1, &(self->on_vfs_write));
 
+  self->env = env;
   self->vfs = sqlite3_malloc(sizeof(*self->vfs));
   memset(self->vfs, 0, sizeof(*self->vfs));
 

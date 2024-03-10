@@ -24,12 +24,12 @@ module.exports = class BareSQLite3 extends ReadyResource {
     binding.bare_sqlite3_close(this._handle)
   }
 
-  _onVFSRead () {
-
+  _onVFSRead (filetype, buf, offset) {
+    console.log('JS READ:', { filetype, buf, offset })
   }
 
-  _onVFSWrite () {
-
+  _onVFSWrite (filetype, buf, offset) {
+    console.log('JS WRITE:', { filetype, buf, offset })
   }
 
   _exec (query) {
