@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(sqlite_vfs_testing C)
+project(bare_sqlite3 C)
 
 include(bare)
 
-add_bare_module(sqlite_vfs_testing)
+add_bare_module(bare_sqlite3)
 
 target_sources(
-  ${sqlite_vfs_testing}
+  ${bare_sqlite3}
   PRIVATE
     binding.c
     vfs.c
@@ -15,7 +15,7 @@ target_sources(
 )
 
 target_include_directories(
-  ${sqlite_vfs_testing}    
+  ${bare_sqlite3}    
   PUBLIC
     INTERFACE_INCLUDE_DIRECTORIES
     vendor/sqlite

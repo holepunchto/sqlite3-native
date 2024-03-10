@@ -1,8 +1,8 @@
 {
   "private": true,
-  "name": "sqlite-vfs-testing",
+  "name": "bare-sqlite3",
   "version": "1.0.0",
-  "description": "Testing VFS extensions with SQLite",
+  "description": "Native SQLite3 bindings for Bare with VFS support",
   "exports": "./index.js",
   "files": [
     "index.js",
@@ -13,20 +13,23 @@
   ],
   "addon": true,
   "scripts": {
-    "test": "standard && bare test.js"
+    "test": "standard && bare test/index.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/holepunchto/bare-addon.git"
+    "url": "git+https://github.com/holepunchto/bare-sqlite3.git"
   },
   "author": "Holepunch",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/holepunchto/bare-addon/issues"
+    "url": "https://github.com/holepunchto/bare-sqlite3/issues"
   },
-  "homepage": "https://github.com/holepunchto/bare-addon#readme",
+  "homepage": "https://github.com/holepunchto/bare-sqlite3#readme",
   "devDependencies": {
     "brittle": "^3.4.0",
     "standard": "^17.0.0"
+  },
+  "dependencies": {
+    "ready-resource": "^1.0.3"
   }
 }
