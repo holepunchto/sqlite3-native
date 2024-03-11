@@ -10,6 +10,7 @@ typedef struct {
   sqlite3_vfs *vfs;
   js_env_t *env;
   js_ref_t *ctx;
+  js_ref_t *on_vfs_access;
   js_ref_t *on_vfs_size;
   js_ref_t *on_vfs_read;
   js_ref_t *on_vfs_write;
@@ -26,6 +27,9 @@ static void
 noop_finalizer (js_env_t *env, void *data, void *hint) {}
 
 #define bare_sqlite3_warning(...) fprintf(stderr, "warning: [bare_sqlite3] " __VA_ARGS__)
+
+// #define bare_info(...) fprintf(stderr, "info: [bare_sqlite3] " __VA_ARGS__)
+#define bare_info(...) { };
 
 static int
 get_file_type (int flags) {
@@ -65,6 +69,8 @@ vfs_file_read (sqlite3_file *sql_file, void *buf, int len, sqlite3_int64 offset)
   bare_sqlite3_vfs_file_t *file = (bare_sqlite3_vfs_file_t*) sql_file;
   bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
 
+  bare_info("vfs_file_read file=%i, len=%i, offset=%lld\n", file->type, len, offset);
+
   js_handle_scope_t *scope;
   js_open_handle_scope(self->env, &scope);
 
@@ -83,13 +89,15 @@ vfs_file_read (sqlite3_file *sql_file, void *buf, int len, sqlite3_int64 offset)
 
   js_close_handle_scope(self->env, scope);
 
-  return SQLITE_OK;  
+  return SQLITE_OK;
 }
 
 static int
 vfs_file_write (sqlite3_file *sql_file, const void *buf, int len, sqlite_int64 offset) {
   bare_sqlite3_vfs_file_t *file = (bare_sqlite3_vfs_file_t*) sql_file;
   bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
+
+  bare_info("vfs_file_write file=%i, len=%i, offset=%lld\n", file->type, len, offset);
 
   js_handle_scope_t *scope;
   js_open_handle_scope(self->env, &scope);
@@ -109,8 +117,8 @@ vfs_file_write (sqlite3_file *sql_file, const void *buf, int len, sqlite_int64 o
 
   js_close_handle_scope(self->env, scope);
 
-  return SQLITE_OK;  
-} 
+  return SQLITE_OK;
+}
 
 static int
 vfs_file_close (sqlite3_file *sql_file) {
@@ -129,7 +137,7 @@ vfs_file_sync (sqlite3_file *sql_file, int flags) {
 }
 
 static int
-vfs_file_size (sqlite3_file *sql_file, sqlite_int64 *pSize) {
+vfs_file_size (sqlite3_file *sql_file, sqlite_int64 *size) {
   bare_sqlite3_vfs_file_t *file = (bare_sqlite3_vfs_file_t*) sql_file;
   bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
 
@@ -143,13 +151,15 @@ vfs_file_size (sqlite3_file *sql_file, sqlite_int64 *pSize) {
 
   js_value_t *args[2];
   js_create_uint32(self->env, file->type, &args[0]);
-  js_create_external_arraybuffer(self->env, (void *) pSize, 8, noop_finalizer, NULL, &args[1]);
+  js_create_external_arraybuffer(self->env, (void *) size, 8, noop_finalizer, NULL, &args[1]);
 
   js_call_function(self->env, ctx, callback, 2, args, NULL);
 
   js_close_handle_scope(self->env, scope);
 
-  return SQLITE_OK;  
+  bare_info("vfs_file_size file=%i, size=%lld\n", file->type, *size);
+
+  return SQLITE_OK;
 }
 
 static int
@@ -208,13 +218,36 @@ vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *sql_file, int flags,
   file->vfs = vfs;
   file->type = get_file_type(flags);
 
+  bare_info("vfs_open file=%i, name=%s\n", file->type, name);
+
   if (name == NULL) return SQLITE_IOERR;
   return SQLITE_OK;
 }
 
 static int
-vfs_access (sqlite3_vfs *vfs, const char *name, int flags, int *pResOut) {
-  *pResOut = 1; // all files are already exists for now at least...
+vfs_access (sqlite3_vfs *vfs, const char *name, int flags, int *result) {
+  bare_sqlite3_t *self = (bare_sqlite3_t*) vfs->pAppData;
+
+  js_handle_scope_t *scope;
+  js_open_handle_scope(self->env, &scope);
+
+  js_value_t *ctx;
+  js_value_t *callback;
+  js_get_reference_value(self->env, self->ctx, &ctx);
+  js_get_reference_value(self->env, self->on_vfs_access, &callback);
+
+  int type = get_file_type_from_name(name);
+
+  js_value_t *args[2];
+  js_create_uint32(self->env, type, &args[0]);
+  js_create_external_arraybuffer(self->env, (void *) result, 4, noop_finalizer, NULL, &args[1]);
+
+  js_call_function(self->env, ctx, callback, 2, args, NULL);
+
+  js_close_handle_scope(self->env, scope);
+
+  bare_info("vfs_access name=%s result=%i\n", name, *result);
+
   return SQLITE_OK;
 }
 
@@ -230,12 +263,16 @@ vfs_delete (sqlite3_vfs *vfs, const char *name, int syncDir) {
   js_get_reference_value(self->env, self->ctx, &ctx);
   js_get_reference_value(self->env, self->on_vfs_delete, &callback);
 
+  int type = get_file_type_from_name(name);
+
   js_value_t *args[1];
-  js_create_uint32(self->env, get_file_type_from_name(name), &args[0]);
+  js_create_uint32(self->env, type, &args[0]);
 
   js_call_function(self->env, ctx, callback, 1, args, NULL);
 
   js_close_handle_scope(self->env, scope);
+
+  bare_info("vfs_delete file=%i, name=%s\n", type, name);
 
   return SQLITE_OK;
 }
@@ -260,7 +297,7 @@ vfs_dlerror (sqlite3_vfs *vfs, int nByte, char *zErrMsg) {
   zErrMsg[nByte-1] = '\0';
 }
 
-static void 
+static void
 (*vfs_dlsym(sqlite3_vfs *vfs, void *pH, const char *z))(void) {
   return 0;
 }
@@ -281,7 +318,7 @@ vfs_randomness (sqlite3_vfs *vfs, int nByte, char *zByte) {
 }
 
 /*
-** Sleep for at least nMicro microseconds. Return the (approximate) number 
+** Sleep for at least nMicro microseconds. Return the (approximate) number
 ** of microseconds slept for.
 */
 static int
@@ -301,28 +338,22 @@ vfs_sleep (sqlite3_vfs *vfs, int nMicro) {
 **   http://en.wikipedia.org/wiki/Julian_day
 **
 ** This implementation is not very good. The current time is rounded to
-** an integer number of seconds. Also, assuming time_t is a signed 32-bit 
+** an integer number of seconds. Also, assuming time_t is a signed 32-bit
 ** value, it will stop working some time in the year 2038 AD (the so-called
-** "year 2038" problem that afflicts systems that store time this way). 
+** "year 2038" problem that afflicts systems that store time this way).
 */
 static int
 vfs_current_time (sqlite3_vfs *vfs, double *pTime) {
   bare_sqlite3_warning("vfs_current_time\n");
   time_t t = time(0);
-  *pTime = t/86400.0 + 2440587.5; 
-  return SQLITE_OK;
-}
-
-static int
-vfs_get_last_error (sqlite3_vfs *vfs, int i, char *c) {
-  printf("TODO binding.c: get last error\n");
+  *pTime = t/86400.0 + 2440587.5;
   return SQLITE_OK;
 }
 
 static js_value_t *
 bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 7;
-  js_value_t *argv[7];
+  size_t argc = 8;
+  js_value_t *argv[8];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
@@ -335,10 +366,11 @@ bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
   utf8_t name[1024];
   js_get_value_string_utf8(env, argv[2], name, 1024, NULL);
 
-  js_create_reference(env, argv[3], 1, &(self->on_vfs_size));
-  js_create_reference(env, argv[4], 1, &(self->on_vfs_read));
-  js_create_reference(env, argv[5], 1, &(self->on_vfs_write));
-  js_create_reference(env, argv[6], 1, &(self->on_vfs_delete));
+  js_create_reference(env, argv[3], 1, &(self->on_vfs_access));
+  js_create_reference(env, argv[4], 1, &(self->on_vfs_size));
+  js_create_reference(env, argv[5], 1, &(self->on_vfs_read));
+  js_create_reference(env, argv[6], 1, &(self->on_vfs_write));
+  js_create_reference(env, argv[7], 1, &(self->on_vfs_delete));
 
   self->env = env;
   self->vfs = sqlite3_malloc(sizeof(*self->vfs));
@@ -360,7 +392,6 @@ bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
   self->vfs->xRandomness = vfs_randomness;
   self->vfs->xSleep = vfs_sleep;
   self->vfs->xCurrentTime = vfs_current_time;
-  self->vfs->xGetLastError = vfs_get_last_error;
 
   sqlite3_vfs_register(self->vfs, 1);
   sqlite3_open((char*) name, &self->db);

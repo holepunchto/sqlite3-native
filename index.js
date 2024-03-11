@@ -19,6 +19,7 @@ module.exports = class BareSQLite3 extends ReadyResource {
       this._handle,
       this,
       this.name,
+      this._onVFSAccess,
       this._onVFSSize,
       this._onVFSRead,
       this._onVFSWrite,
@@ -29,6 +30,12 @@ module.exports = class BareSQLite3 extends ReadyResource {
   _close () {
     if (this.opened === false) return
     binding.bare_sqlite3_close(this._handle)
+  }
+
+  _onVFSAccess (type, arrayBuffer) {
+    const yes = this._files[type] !== null
+    const ints = new Int32Array(arrayBuffer)
+    ints[0] = yes ? 1 : 0
   }
 
   _onVFSSize (type, arrayBuffer) {
