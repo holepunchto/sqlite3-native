@@ -22,8 +22,8 @@ test('can open a db and create many tables', async t => {
 test('can open a db, insert and select', async t => {
   const sql = create(t)
   await sql.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
-  await sql.exec(`INSERT INTO records (NAME) values ('mathias'), ('andrew');`)
-  const result = await sql.exec(`SELECT ID, NAME FROM records;`)
+  await sql.exec("INSERT INTO records (NAME) values ('mathias'), ('andrew');")
+  const result = await sql.exec('SELECT ID, NAME FROM records;')
   t.is(result.length, 2)
   t.alike(result[0].columns, ['ID', 'NAME'])
   t.alike(result[0].rows, ['1', 'mathias'])
