@@ -452,10 +452,10 @@ bare_sqlite3_exec (js_env_t *env, js_callback_info_t *info) {
   size_t query_length;
   js_get_value_string_utf8(env, argv[1], NULL, 0, &query_length);
 
-  utf8_t *query = (utf8_t *) sqlite3_malloc(sizeof(utf8_t) * query_length + 1);
+  query_length++;
+  utf8_t *query = (utf8_t *) sqlite3_malloc(query_length);
 
-  js_get_value_string_utf8(env, argv[1], query, sizeof(utf8_t) * query_length + 1, NULL);
-  bare_sqlite3_warning("query is %s\n", query);
+  js_get_value_string_utf8(env, argv[1], query, query_length, NULL);
 
   char *err = NULL;
   sqlite3_exec(self->db, (const char *) query, on_sql_exec_callback, self, &err);
