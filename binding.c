@@ -10,6 +10,7 @@ typedef struct {
   sqlite3_vfs *vfs;
   js_env_t *env;
   js_ref_t *ctx;
+  js_ref_t *on_callback;
   js_ref_t *on_vfs_access;
   js_ref_t *on_vfs_size;
   js_ref_t *on_vfs_read;
@@ -26,9 +27,9 @@ typedef struct {
 static void
 noop_finalizer (js_env_t *env, void *data, void *hint) {}
 
-#define bare_sqlite3_warning(...) fprintf(stderr, "warning: [bare_sqlite3] " __VA_ARGS__)
+#define bare_sqlite3_warning(...) fprintf(stderr, "[bare_sqlite3] warning: " __VA_ARGS__)
 
-// #define bare_info(...) fprintf(stderr, "info: [bare_sqlite3] " __VA_ARGS__)
+// #define bare_info(...) fprintf(stderr, "[bare_sqlite3] info: " __VA_ARGS__)
 #define bare_info(...) { };
 
 static int
@@ -352,8 +353,8 @@ vfs_current_time (sqlite3_vfs *vfs, double *pTime) {
 
 static js_value_t *
 bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
-  size_t argc = 8;
-  js_value_t *argv[8];
+  size_t argc = 9;
+  js_value_t *argv[9];
 
   js_get_callback_info(env, info, &argc, argv, NULL, NULL);
 
@@ -366,11 +367,12 @@ bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
   utf8_t name[1024];
   js_get_value_string_utf8(env, argv[2], name, 1024, NULL);
 
-  js_create_reference(env, argv[3], 1, &(self->on_vfs_access));
-  js_create_reference(env, argv[4], 1, &(self->on_vfs_size));
-  js_create_reference(env, argv[5], 1, &(self->on_vfs_read));
-  js_create_reference(env, argv[6], 1, &(self->on_vfs_write));
-  js_create_reference(env, argv[7], 1, &(self->on_vfs_delete));
+  js_create_reference(env, argv[3], 1, &(self->on_callback));
+  js_create_reference(env, argv[4], 1, &(self->on_vfs_access));
+  js_create_reference(env, argv[5], 1, &(self->on_vfs_size));
+  js_create_reference(env, argv[6], 1, &(self->on_vfs_read));
+  js_create_reference(env, argv[7], 1, &(self->on_vfs_write));
+  js_create_reference(env, argv[8], 1, &(self->on_vfs_delete));
 
   self->env = env;
   self->vfs = sqlite3_malloc(sizeof(*self->vfs));
@@ -401,12 +403,46 @@ bare_sqlite3_open (js_env_t *env, js_callback_info_t *info) {
 
 static js_value_t *
 bare_sqlite3_close (js_env_t *env, js_callback_info_t *info) {
+  // TODO:
   return NULL;
 }
 
 static int
-on_sql_exec_callback (void *data, int cols_len, char **cols, char **rows) {
-  printf("oncb\n");
+on_sql_exec_callback (void *data, int cols_len, char **rows, char **cols) {
+  bare_sqlite3_t *self = (bare_sqlite3_t *) data;
+  js_env_t *env = self->env;
+
+  js_handle_scope_t *scope;
+  js_open_handle_scope(env, &scope);
+
+  js_value_t *ctx;
+  js_value_t *callback;
+  js_get_reference_value(env, self->ctx, &ctx);
+  js_get_reference_value(env, self->on_callback, &callback);
+
+  js_value_t *rows_js;
+  js_create_array_with_length(env, cols_len, &rows_js);
+
+  js_value_t *cols_js;
+  js_create_array_with_length(env, cols_len, &cols_js);
+
+  for (int i = 0; i < cols_len; i++) {
+    js_value_t *row_js;
+    if (rows[i] == NULL) js_get_null(env, &row_js);
+    else js_create_string_utf8(env, (const utf8_t *) rows[i], -1, &row_js);
+    js_set_element(env, rows_js, i, row_js);
+
+    js_value_t *col_js;
+    js_create_string_utf8(env, (const utf8_t *) cols[i], -1, &col_js);
+    js_set_element(env, cols_js, i, col_js);
+  }
+
+  js_value_t *args[2] = { rows_js, cols_js };
+
+  js_call_function(env, ctx, callback, 2, args, NULL);
+
+  js_close_handle_scope(env, scope);
+
   return 0;
 }
 
@@ -430,7 +466,7 @@ bare_sqlite3_exec (js_env_t *env, js_callback_info_t *info) {
   js_get_value_string_utf8(env, argv[1], query, query_length, NULL);
 
   char *err = NULL;
-  sqlite3_exec(self->db, (const char *) query, NULL, NULL, &err);
+  sqlite3_exec(self->db, (const char *) query, on_sql_exec_callback, self, &err);
   sqlite3_free(query);
 
   if (err != NULL) {

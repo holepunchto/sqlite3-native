@@ -4,7 +4,7 @@ const binding = require.addon()
 const LE = (new Uint8Array(new Uint16Array([255]).buffer))[0] === 0xff
 
 module.exports = class BareSQLite3 extends ReadyResource {
-  constructor (name, open) {
+  constructor (open, { name = 'bare_sqlite_db' } = {}) {
     super()
 
     this.name = name
@@ -12,6 +12,7 @@ module.exports = class BareSQLite3 extends ReadyResource {
 
     this._handle = Buffer.allocUnsafe(binding.sizeof_bare_sqlite3_t)
     this._files = [null, null, null]
+    this._result = null
   }
 
   _open () {
@@ -19,12 +20,17 @@ module.exports = class BareSQLite3 extends ReadyResource {
       this._handle,
       this,
       this.name,
+      this._onCallback,
       this._onVFSAccess,
       this._onVFSSize,
       this._onVFSRead,
       this._onVFSWrite,
       this._onVFSDelete
     )
+  }
+
+  _onCallback (rows, columns) {
+    this._result.push({ rows, columns })
   }
 
   _close () {
@@ -71,8 +77,10 @@ module.exports = class BareSQLite3 extends ReadyResource {
   }
 
   async exec (query) {
-    if (this.opened === false) await thsi.ready()
+    if (this.opened === false) await this.ready()
+    this._result = []
     binding.bare_sqlite3_exec(this._handle, query)
+    return this._result
   }
 }
 
