@@ -1,17 +1,17 @@
 const ReadyResource = require('ready-resource')
-const b4a = require('b4a')
 const binding = require.addon()
 
-const EMPTY = Buffer.alloc(0)
 const LE = (new Uint8Array(new Uint16Array([255]).buffer))[0] === 0xff
 
 module.exports = class BareSQLite3 extends ReadyResource {
-  constructor (name) {
+  constructor (name, open) {
     super()
-    this.name = name
 
-    this._handle = b4a.allocUnsafe(binding.sizeof_bare_sqlite3_t)
-    this._files = new Array(3)
+    this.name = name
+    this.open = open
+
+    this._handle = Buffer.allocUnsafe(binding.sizeof_bare_sqlite3_t)
+    this._files = [null, null, null]
   }
 
   _open () {
@@ -32,44 +32,35 @@ module.exports = class BareSQLite3 extends ReadyResource {
   }
 
   _onVFSSize (type, arrayBuffer) {
-    const stored = this._files[type] || EMPTY
-    writeUint64(arrayBuffer, stored.byteLength)
-    console.log('JS SIZE', { type, byteLength: stored.byteLength })
+    const file = this._files[type]
+    writeUint64(arrayBuffer, file ? file.size : 0)
   }
 
   _onVFSRead (type, arrayBuffer, offset) {
     const buffer = Buffer.from(arrayBuffer)
 
-    let stored = (this._files[type] || EMPTY).subarray(offset, offset + buffer.byteLength)
+    let file = this._files[type]
+    if (file === null) file = this._files[type] = this.open(type)
+
+    let stored = file.read(offset, offset + buffer.byteLength)
     if (stored < buffer.byteLength) stored = Buffer.concat([stored, Buffer.alloc(buffer.byteLength - stored.byteLength)])
 
     buffer.set(stored, 0)
-
-    console.log('JS READ:', { type, offset, byteLength: buffer.byteLength })
   }
 
   _onVFSWrite (type, arrayBuffer, offset) {
     const buffer = Buffer.from(arrayBuffer)
-    const size = buffer.byteLength + offset
 
-    let stored = this._files[type] || Buffer.alloc(4096)
+    let file = this._files[type]
+    if (file === null) file = this._files[type] = this.open(type)
 
-    let storedSize = stored.byteLength
-    while (storedSize < size) storedSize *= 2
-
-    if (stored.byteLength < storedSize) {
-      stored = Buffer.concat([stored, Buffer.alloc(storedSize - stored.byteLength)])
-    }
-
-    this._files[type] = stored
-    stored.set(buffer, offset)
-
-    console.log('JS WRITE:', { type, offset, byteLength: buffer.byteLength })
+    file.write(offset, buffer)
   }
 
   _onVFSDelete (type) {
-    this._files[type] = undefined
-    console.log('JS DELETE', { type })
+    const file = this._files[type]
+    if (file && file.unlink) file.unlink()
+    this._files[type] = null
   }
 
   async exec (query) {
