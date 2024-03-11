@@ -454,7 +454,7 @@ bare_sqlite3_exec (js_env_t *env, js_callback_info_t *info) {
 
   utf8_t *query = (utf8_t *) sqlite3_malloc(sizeof(utf8_t) * query_length + 1);
 
-  js_get_value_string_utf8(env, argv[1], query, query_length, NULL);
+  js_get_value_string_utf8(env, argv[1], query, query_length + 1, NULL);
   bare_sqlite3_warning("query is %s\n", query);
 
   char *err = NULL;
