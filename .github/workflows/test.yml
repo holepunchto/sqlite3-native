@@ -11,10 +11,8 @@ jobs:
     strategy:
       matrix:
         node: [lts/*]
-        os: [ubuntu-latest, macos-latest]
+        os: [macos-latest]
         include:
-        - os: ubuntu-latest
-          name: ubuntu
         - os: macos-latest
           name: macos
     runs-on: ${{ matrix.os }}

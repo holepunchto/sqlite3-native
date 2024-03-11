@@ -29,8 +29,8 @@ noop_finalizer (js_env_t *env, void *data, void *hint) {}
 
 #define bare_sqlite3_warning(...) fprintf(stderr, "[bare_sqlite3] warning: " __VA_ARGS__)
 
-// #define bare_info(...) fprintf(stderr, "[bare_sqlite3] info: " __VA_ARGS__)
-#define bare_info(...) { };
+// #define bare_sqlite3_info(...) fprintf(stderr, "[bare_sqlite3] info: " __VA_ARGS__)
+#define bare_sqlite3_info(...) { };
 
 static int
 get_file_type (int flags) {
@@ -70,7 +70,7 @@ vfs_file_read (sqlite3_file *sql_file, void *buf, int len, sqlite3_int64 offset)
   bare_sqlite3_vfs_file_t *file = (bare_sqlite3_vfs_file_t*) sql_file;
   bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
 
-  bare_info("vfs_file_read file=%i, len=%i, offset=%lld\n", file->type, len, offset);
+  bare_sqlite3_info("vfs_file_read file=%i, len=%i, offset=%lld\n", file->type, len, offset);
 
   js_handle_scope_t *scope;
   js_open_handle_scope(self->env, &scope);
@@ -98,7 +98,7 @@ vfs_file_write (sqlite3_file *sql_file, const void *buf, int len, sqlite_int64 o
   bare_sqlite3_vfs_file_t *file = (bare_sqlite3_vfs_file_t*) sql_file;
   bare_sqlite3_t *self = (bare_sqlite3_t*) file->vfs->pAppData;
 
-  bare_info("vfs_file_write file=%i, len=%i, offset=%lld\n", file->type, len, offset);
+  bare_sqlite3_info("vfs_file_write file=%i, len=%i, offset=%lld\n", file->type, len, offset);
 
   js_handle_scope_t *scope;
   js_open_handle_scope(self->env, &scope);
@@ -158,7 +158,7 @@ vfs_file_size (sqlite3_file *sql_file, sqlite_int64 *size) {
 
   js_close_handle_scope(self->env, scope);
 
-  bare_info("vfs_file_size file=%i, size=%lld\n", file->type, *size);
+  bare_sqlite3_info("vfs_file_size file=%i, size=%lld\n", file->type, *size);
 
   return SQLITE_OK;
 }
@@ -219,7 +219,7 @@ vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *sql_file, int flags,
   file->vfs = vfs;
   file->type = get_file_type(flags);
 
-  bare_info("vfs_open file=%i, name=%s\n", file->type, name);
+  bare_sqlite3_info("vfs_open file=%i, name=%s\n", file->type, name);
 
   if (name == NULL) return SQLITE_IOERR;
   return SQLITE_OK;
@@ -247,7 +247,7 @@ vfs_access (sqlite3_vfs *vfs, const char *name, int flags, int *result) {
 
   js_close_handle_scope(self->env, scope);
 
-  bare_info("vfs_access name=%s result=%i\n", name, *result);
+  bare_sqlite3_info("vfs_access name=%s result=%i\n", name, *result);
 
   return SQLITE_OK;
 }
@@ -273,17 +273,15 @@ vfs_delete (sqlite3_vfs *vfs, const char *name, int syncDir) {
 
   js_close_handle_scope(self->env, scope);
 
-  bare_info("vfs_delete file=%i, name=%s\n", type, name);
+  bare_sqlite3_info("vfs_delete file=%i, name=%s\n", type, name);
 
   return SQLITE_OK;
 }
 
 static int
-vfs_fullpathname (sqlite3_vfs *vfs, const char *name, int nOut, char *zOut) {
-  if (strlen(name) >= nOut) {
-    return SQLITE_ERROR;
-  }
-  strcpy(zOut, name);
+vfs_fullpathname (sqlite3_vfs *vfs, const char *name, int len, char *out) {
+  if (strlen(name) >= len) return SQLITE_ERROR;
+  strcpy(out, name);
   return SQLITE_OK;
 }
 
@@ -294,7 +292,7 @@ vfs_dlopen (sqlite3_vfs *vfs, const char *zPath) {
 
 static void
 vfs_dlerror (sqlite3_vfs *vfs, int nByte, char *zErrMsg) {
-  sqlite3_snprintf(nByte, zErrMsg, "Loadable extensions are not supported");
+  bare_sqlite3_warning("vfs_dlerror, loadable extensions are not supported\n");
   zErrMsg[nByte-1] = '\0';
 }
 
@@ -308,28 +306,17 @@ vfs_dlclose (sqlite3_vfs *vfs, void *pHandle) {
   return;
 }
 
-/*
-** Parameter zByte points to a buffer nByte bytes in size. Populate this
-** buffer with pseudo-random data.
-*/
 static int
-vfs_randomness (sqlite3_vfs *vfs, int nByte, char *zByte) {
-  bare_sqlite3_warning("vfs_randomness\n");
+vfs_randomness (sqlite3_vfs *vfs, int bytes, char *buf) {
+  memset(buf, 0, bytes); // just clear it
+  bare_sqlite3_info("vfs_randomness bytes=%i\n", bytes);
   return SQLITE_OK;
 }
 
-/*
-** Sleep for at least nMicro microseconds. Return the (approximate) number
-** of microseconds slept for.
-*/
 static int
 vfs_sleep (sqlite3_vfs *vfs, int nMicro) {
   bare_sqlite3_warning("vfs_sleep\n");
-  uv_sleep(nMicro / 1000);
-  if (nMicro % 1000 > 500) {
-    uv_sleep(1);
-  }
-  return nMicro;
+  return 0;
 }
 
 /*
@@ -344,10 +331,14 @@ vfs_sleep (sqlite3_vfs *vfs, int nMicro) {
 ** "year 2038" problem that afflicts systems that store time this way).
 */
 static int
-vfs_current_time (sqlite3_vfs *vfs, double *pTime) {
+vfs_current_time (sqlite3_vfs *vfs, double *time) {
   bare_sqlite3_warning("vfs_current_time\n");
-  time_t t = time(0);
-  *pTime = t/86400.0 + 2440587.5;
+
+  uv_timespec64_t ts;
+  uv_clock_gettime(UV_CLOCK_REALTIME, &ts);
+
+  *time = ts.tv_sec / 86400.0 + 2440587.5;
+
   return SQLITE_OK;
 }
 
