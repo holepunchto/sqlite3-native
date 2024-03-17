@@ -1,7 +1,5 @@
 const test = require('brittle')
-
-const MemoryVFS = require('../memory')
-const BareSQLite3 = require('..')
+const { create } = require('./helpers')
 
 test('can open a db', async t => {
   const sql = create(t)
@@ -30,8 +28,14 @@ test('can open a db, insert and select', async t => {
   t.alike(result[1].rows, ['2', 'andrew'])
 })
 
-function create (t) {
-  const db = new BareSQLite3(() => new MemoryVFS())
-  t.teardown(() => db.close())
-  return db
-}
+test('big values', async t => {
+  const big = Buffer.alloc(4096).fill('big').toString()
+  const sql = create(t)
+  await sql.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
+  await sql.exec("INSERT INTO records (NAME) values ('" + big + "'), ('short');")
+  const result = await sql.exec('SELECT ID, NAME FROM records;')
+  t.is(result.length, 2)
+  t.alike(result[0].columns, ['ID', 'NAME'])
+  t.alike(result[0].rows, ['1', big])
+  t.alike(result[1].rows, ['2', 'short'])
+})
