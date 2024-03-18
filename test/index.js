@@ -39,3 +39,31 @@ test('big values', async t => {
   t.alike(result[0].rows, ['1', big])
   t.alike(result[1].rows, ['2', 'short'])
 })
+
+test('basic index', async (t) => {
+  const sql = create(t)
+
+  await sql.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
+  await sql.exec('CREATE UNIQUE INDEX idx_name ON records (NAME);')
+  await sql.exec("INSERT INTO records (NAME) values ('mathias'), ('andrew');")
+  const result = await sql.exec("SELECT NAME FROM records WHERE NAME = 'mathias';")
+  t.is(result.length, 1)
+  t.alike(result[0].columns, ['NAME'])
+  t.alike(result[0].rows, ['mathias'])
+})
+
+test('bigger index', async (t) => {
+  const sql = create(t)
+
+  await sql.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
+  await sql.exec('CREATE UNIQUE INDEX idx_name ON records (NAME);')
+
+  for (let i = 0; i < 1000; i++) {
+    await sql.exec(`INSERT INTO records (NAME) values ('mr-${i}');`)
+  }
+
+  const result = await sql.exec("SELECT NAME FROM records WHERE NAME = 'mr-10';")
+  t.is(result.length, 1)
+  t.alike(result[0].columns, ['NAME'])
+  t.alike(result[0].rows, ['mr-10'])
+})
