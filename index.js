@@ -1,3 +1,4 @@
+const MemoryVFS = require('./memory')
 const ReadyResource = require('ready-resource')
 const binding = require.addon()
 
@@ -14,6 +15,8 @@ module.exports = class BareSQLite3 extends ReadyResource {
     this._files = [null, null, null]
     this._result = null
   }
+
+  static MemoryVFS = MemoryVFS
 
   _open () {
     binding.bare_sqlite3_open(

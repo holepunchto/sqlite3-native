@@ -6,6 +6,18 @@ module.exports = class MemoryVFS {
     this.size = 0
   }
 
+  pages ({ copy = true } = {}) {
+    const all = []
+    for (let i = 0; i < this.buffer.byteLength; i += 4096) {
+      const value = this.buffer.subarray(i, i + 4096)
+      all.push({
+        index: i / 4096,
+        value: copy ? Buffer.concat([value]) : value
+      })
+    }
+    return all
+  }
+
   read (start, end) {
     return this.buffer.subarray(start, end)
   }
