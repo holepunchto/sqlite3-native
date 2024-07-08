@@ -171,7 +171,7 @@ sqlite3_native__on_vfs_sync (sqlite3_file *handle, int flags) {
 }
 
 static int
-sqlite3_native__on_vfs_size (sqlite3_file *handle, sqlite_int64 *size) {
+sqlite3_native__on_vfs_size (sqlite3_file *handle, sqlite_int64 *psize) {
   int err;
 
   sqlite3_native_file_t *file = (sqlite3_native_file_t *) handle;
@@ -201,8 +201,11 @@ sqlite3_native__on_vfs_size (sqlite3_file *handle, sqlite_int64 *size) {
   err = js_call_function(vfs->env, ctx, on_size, 1, args, &result);
   assert(err == 0);
 
-  err = js_get_value_int64(env, result, size);
+  int64_t size;
+  err = js_get_value_int64(env, result, &size);
   assert(err == 0);
+
+  *psize = size;
 
   err = js_close_handle_scope(vfs->env, scope);
   assert(err == 0);
@@ -242,7 +245,7 @@ sqlite3_native__on_vfs_device_characteristics (sqlite3_file *sql_file) {
 }
 
 static int
-sqlite3_native__on_vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *handle, int flags, int *pOutFlags) {
+sqlite3_native__on_vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *handle, int flags, int *pflags) {
   sqlite3_native_file_t *file = (sqlite3_native_file_t *) handle;
 
   file->type = sqlite3_native__get_file_type(flags);
@@ -271,7 +274,7 @@ sqlite3_native__on_vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *h
 }
 
 static int
-sqlite3_native__on_vfs_access (sqlite3_vfs *handle, const char *name, int flags, int *exists) {
+sqlite3_native__on_vfs_access (sqlite3_vfs *handle, const char *name, int flags, int *pexists) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) handle;
@@ -301,8 +304,11 @@ sqlite3_native__on_vfs_access (sqlite3_vfs *handle, const char *name, int flags,
   err = js_call_function(vfs->env, ctx, on_access, 1, args, &result);
   assert(err == 0);
 
-  err = js_get_value_int32(env, result, exists);
+  bool exists;
+  err = js_get_value_bool(env, result, &exists);
   assert(err == 0);
+
+  *pexists = exists;
 
   err = js_close_handle_scope(vfs->env, scope);
   assert(err == 0);
