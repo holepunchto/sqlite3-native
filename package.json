@@ -13,7 +13,7 @@
     "CMakeLists.txt",
     "lib",
     "prebuilds",
-    "vendor/sqlite"
+    "vendor/sqlite3"
   ],
   "addon": true,
   "scripts": {
