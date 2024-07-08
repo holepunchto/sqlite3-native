@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(sqlite3_native C)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 include(bare)
 
 if(NOT TARGET sqlite3)
