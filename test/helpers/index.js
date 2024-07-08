@@ -1,9 +1,9 @@
 const PAGE_SIZE = 4096
-const BareSQLite3 = require('../../')
-const MemoryVFS = require('../../memory')
+
+const SQLite3 = require('../..')
 
 exports.create = function create (t) {
-  const db = new BareSQLite3(() => new MemoryVFS())
+  const db = new SQLite3()
   t.teardown(() => db.close())
   return db
 }

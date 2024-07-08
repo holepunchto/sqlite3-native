@@ -1,35 +1,40 @@
 {
   "private": true,
-  "name": "bare-sqlite3",
+  "name": "sqlite3-native",
   "version": "1.0.0",
-  "description": "Native SQLite3 bindings for Bare with VFS support",
-  "exports": "./index.js",
+  "description": "Native SQLite3 bindings for JavaScript with VFS support",
+  "exports": {
+    ".": "./index.js",
+    "./package": "./package.json"
+  },
   "files": [
     "index.js",
     "binding.c",
     "binding.js",
     "CMakeLists.txt",
-    "prebuilds"
+    "lib",
+    "prebuilds",
+    "vendor/sqlite"
   ],
   "addon": true,
   "scripts": {
-    "test": "standard && bare test/index.js"
+    "test": "standard && bare test.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/holepunchto/bare-sqlite3.git"
+    "url": "git+https://github.com/holepunchto/sqlite3-native.git"
   },
   "author": "Holepunch",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/holepunchto/bare-sqlite3/issues"
+    "url": "https://github.com/holepunchto/sqlite3-native/issues"
   },
-  "homepage": "https://github.com/holepunchto/bare-sqlite3#readme",
+  "homepage": "https://github.com/holepunchto/sqlite3-native#readme",
+  "dependencies": {
+    "ready-resource": "^1.0.3"
+  },
   "devDependencies": {
     "brittle": "^3.4.0",
     "standard": "^17.0.0"
-  },
-  "dependencies": {
-    "ready-resource": "^1.0.3"
   }
 }

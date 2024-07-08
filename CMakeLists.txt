@@ -1,23 +1,23 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(bare_sqlite3 C)
+project(sqlite3_native C)
 
 include(bare)
 
-add_bare_module(bare_sqlite3)
+if(NOT TARGET sqlite3)
+  add_subdirectory(vendor/sqlite3 EXCLUDE_FROM_ALL)
+endif()
+
+add_bare_module(sqlite3_native_bare)
 
 target_sources(
-  ${bare_sqlite3}
+  ${sqlite3_native_bare}
   PRIVATE
     binding.c
-    vfs.c
-    vendor/sqlite/sqlite3.c
 )
 
-target_include_directories(
-  ${bare_sqlite3}    
-  PUBLIC
-    INTERFACE_INCLUDE_DIRECTORIES
-    vendor/sqlite
+target_link_libraries(
+  ${sqlite3_native_bare}
+  PRIVATE
+    sqlite3
 )
-
