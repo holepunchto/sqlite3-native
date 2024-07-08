@@ -1,7 +1,6 @@
 {
-  "private": true,
   "name": "sqlite3-native",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Native SQLite3 bindings for JavaScript with VFS support",
   "exports": {
     ".": "./index.js",
