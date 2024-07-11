@@ -20,6 +20,8 @@ test('select 1', async (t) => {
       }
     })
 
+    await db.close()
+
     t.comment(Math.round(ops / elapsed * 1e3) + ' ops/s')
   })
 })
@@ -43,6 +45,8 @@ test('select 100', async (t) => {
         await db.exec('SELECT NAME FROM records LIMIT 100')
       }
     })
+
+    await db.close()
 
     t.comment(Math.round(ops / elapsed * 1e3) + ' ops/s')
   })
