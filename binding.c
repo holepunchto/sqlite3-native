@@ -121,6 +121,8 @@ typedef struct {
   uv_sem_t done;
 } sqlite3_native_exec_t;
 
+static const size_t sqlite3_native__queue_limit = 64;
+
 static bool
 sqlite3_native__ends_with (const char *string, const char *suffix) {
   size_t string_len = strlen(string);
@@ -587,19 +589,19 @@ sqlite3_native_vfs_init (js_env_t *env, js_callback_info_t *info) {
   err = js_create_reference(env, argv[0], 1, &vfs->ctx);
   assert(err == 0);
 
-  err = js_create_threadsafe_function(env, argv[1], 0, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_access_call, &vfs->on_access);
+  err = js_create_threadsafe_function(env, argv[1], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_access_call, &vfs->on_access);
   assert(err == 0);
 
-  err = js_create_threadsafe_function(env, argv[2], 0, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_size_call, &vfs->on_size);
+  err = js_create_threadsafe_function(env, argv[2], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_size_call, &vfs->on_size);
   assert(err == 0);
 
-  err = js_create_threadsafe_function(env, argv[3], 0, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_read_call, &vfs->on_read);
+  err = js_create_threadsafe_function(env, argv[3], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_read_call, &vfs->on_read);
   assert(err == 0);
 
-  err = js_create_threadsafe_function(env, argv[4], 0, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_write_call, &vfs->on_write);
+  err = js_create_threadsafe_function(env, argv[4], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_write_call, &vfs->on_write);
   assert(err == 0);
 
-  err = js_create_threadsafe_function(env, argv[5], 0, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_delete_call, &vfs->on_delete);
+  err = js_create_threadsafe_function(env, argv[5], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_delete_call, &vfs->on_delete);
   assert(err == 0);
 
   vfs->handle = (sqlite3_vfs){
@@ -763,7 +765,7 @@ sqlite3_native_init (js_env_t *env, js_callback_info_t *info) {
   err = js_create_reference(env, argv[0], 1, &db->ctx);
   assert(err == 0);
 
-  err = js_create_threadsafe_function(env, argv[1], 0, 1, NULL, NULL, (void *) db, sqlite3_native__on_result_call, &db->on_result);
+  err = js_create_threadsafe_function(env, argv[1], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) db, sqlite3_native__on_result_call, &db->on_result);
   assert(err == 0);
 
   return handle;
