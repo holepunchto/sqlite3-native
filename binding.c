@@ -786,7 +786,8 @@ sqlite3_native__on_result_call (js_env_t *env, js_value_t *on_result, void *cont
 
   js_value_t *args[2] = {rows, cols};
 
-  js_call_function(env, ctx, on_result, 2, args, NULL);
+  err = js_call_function(env, ctx, on_result, 2, args, NULL);
+  assert(err == 0);
 
   uv_sem_post(&data->done);
 }
@@ -801,15 +802,10 @@ sqlite3_native__on_result (void *arg, int len, char **rows, char **cols) {
   data->rows = rows;
   data->cols = cols;
 
-  err = uv_sem_init(&data->done, 0);
-  assert(err == 0);
-
   err = js_call_threadsafe_function(data->db->on_result, (void *) data, js_threadsafe_function_blocking);
   assert(err == 0);
 
   uv_sem_wait(&data->done);
-
-  uv_sem_destroy(&data->done);
 
   return SQLITE_OK;
 }
@@ -1050,11 +1046,18 @@ sqlite3_native__on_after_exec (uv_work_t *handle, int status) {
 
 static void
 sqlite3_native__on_before_exec (uv_work_t *handle) {
+  int err;
+
   sqlite3_native_exec_t *req = (sqlite3_native_exec_t *) handle->data;
+
+  err = uv_sem_init(&req->done, 0);
+  assert(err == 0);
 
   sqlite3_exec(req->db->handle, (const char *) req->query, sqlite3_native__on_result, (void *) req, &req->error);
 
   free(req->query);
+
+  uv_sem_destroy(&req->done);
 }
 
 static js_value_t *
