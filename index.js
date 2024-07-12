@@ -15,21 +15,14 @@ module.exports = exports = class SQLite3 extends ReadyResource {
     this.name = name
 
     this._vfs = vfs
-    this._result = []
 
-    this._handle = binding.init(this, this._onresult)
-  }
-
-  _onresult (rows, columns) {
-    this._result.push({ rows, columns })
+    this._handle = binding.init(this)
   }
 
   async exec (query) {
     if (this.opened === false) await this.ready()
 
-    this._result = []
-
-    return binding.exec(this._handle, query).then(() => this._result)
+    return binding.exec(this._handle, query)
   }
 
   async _open () {
