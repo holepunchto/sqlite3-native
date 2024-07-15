@@ -49,7 +49,7 @@ typedef struct {
 
   void *buf;
   int len;
-  sqlite3_int64 offset;
+  int64_t offset;
 } sqlite3_native_read_t;
 
 typedef struct {
@@ -57,13 +57,13 @@ typedef struct {
 
   const void *buf;
   int len;
-  sqlite3_int64 offset;
+  int64_t offset;
 } sqlite3_native_write_t;
 
 typedef struct {
   sqlite3_native_file_t *file;
 
-  sqlite_int64 size;
+  int64_t size;
 } sqlite3_native_size_t;
 
 typedef struct {
