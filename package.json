@@ -1,7 +1,7 @@
 {
   "name": "sqlite3-native",
   "version": "0.0.1",
-  "description": "Native SQLite3 bindings for JavaScript with VFS support",
+  "description": "Asynchronous SQLite3 bindings for JavaScript with VFS support",
   "exports": {
     ".": "./index.js",
     "./package": "./package.json"
@@ -29,6 +29,9 @@
     "url": "https://github.com/holepunchto/sqlite3-native/issues"
   },
   "homepage": "https://github.com/holepunchto/sqlite3-native#readme",
+  "engines": {
+    "bare": ">=1.4.0"
+  },
   "dependencies": {
     "ready-resource": "^1.0.3"
   },
