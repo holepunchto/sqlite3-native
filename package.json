@@ -29,6 +29,9 @@
     "url": "https://github.com/holepunchto/sqlite3-native/issues"
   },
   "homepage": "https://github.com/holepunchto/sqlite3-native#readme",
+  "engines": {
+    "bare": ">=1.4.0"
+  },
   "dependencies": {
     "ready-resource": "^1.0.3"
   },
