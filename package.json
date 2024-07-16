@@ -33,6 +33,7 @@
     "bare": ">=1.4.0"
   },
   "dependencies": {
+    "load-addon": "^1.0.0",
     "ready-resource": "^1.0.3"
   },
   "devDependencies": {
