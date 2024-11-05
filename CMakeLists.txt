@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(sqlite3_native C)
-
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-include(bare)
-include(napi)
+find_package(cmake-bare REQUIRED PATHS node_modules/cmake-bare)
+find_package(cmake-napi REQUIRED PATHS node_modules/cmake-napi)
+find_package(cmake-npm REQUIRED PATHS node_modules/cmake-npm)
+
+project(sqlite3_native C)
 
 if(NOT TARGET sqlite3)
   add_subdirectory(vendor/sqlite3 EXCLUDE_FROM_ALL)
@@ -27,14 +28,6 @@ target_link_libraries(
 
 add_napi_module(sqlite3_native_node)
 
-bare_include_directories(compat NAPI)
-
-target_include_directories(
-  ${sqlite3_native_node}
-  PRIVATE
-    ${compat}
-)
-
 target_sources(
   ${sqlite3_native_node}
   PRIVATE
@@ -45,4 +38,12 @@ target_link_libraries(
   ${sqlite3_native_node}
   PUBLIC
     sqlite3
+)
+
+resolve_node_module(bare-compat-napi compat)
+
+target_include_directories(
+  ${sqlite3_native_node}
+  PRIVATE
+    "${compat}/include"
 )
