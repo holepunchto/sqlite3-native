@@ -1,1 +1,3 @@
-module.exports = require('require-addon')('.', __filename)
+require.addon = require('require-addon')
+
+const bindings = require.addon('.', __filename)
