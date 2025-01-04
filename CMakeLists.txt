@@ -3,14 +3,27 @@ cmake_minimum_required(VERSION 3.25)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(cmake-bare REQUIRED PATHS node_modules/cmake-bare)
+find_package(cmake-fetch REQUIRED PATHS node_modules/cmake-fetch)
 find_package(cmake-napi REQUIRED PATHS node_modules/cmake-napi)
 find_package(cmake-npm REQUIRED PATHS node_modules/cmake-npm)
 
 project(sqlite3_native C)
 
-if(NOT TARGET sqlite3)
-  add_subdirectory(vendor/sqlite3 EXCLUDE_FROM_ALL)
-endif()
+fetch_package("https://sqlite.org/2024/sqlite-amalgamation-3470200.zip" SOURCE_DIR sqlite3)
+
+add_library(sqlite3)
+
+target_sources(
+  sqlite3
+  PRIVATE
+    ${sqlite3}/sqlite3.c
+)
+
+target_include_directories(
+  sqlite3
+  INTERFACE
+    ${sqlite3}
+)
 
 add_bare_module(sqlite3_native_bare)
 
