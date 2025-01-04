@@ -4,11 +4,8 @@ const VFS = require('./lib/vfs')
 const MemoryVFS = require('./lib/memory-vfs')
 
 module.exports = exports = class SQLite3 extends ReadyResource {
-  constructor (opts = {}) {
-    const {
-      name = 'sqlite3.db',
-      vfs = new MemoryVFS()
-    } = opts
+  constructor(opts = {}) {
+    const { name = 'sqlite3.db', vfs = new MemoryVFS() } = opts
 
     super()
 
@@ -19,17 +16,17 @@ module.exports = exports = class SQLite3 extends ReadyResource {
     this._handle = binding.init(this)
   }
 
-  async exec (query) {
+  async exec(query) {
     if (this.opened === false) await this.ready()
 
     return binding.exec(this._handle, query)
   }
 
-  async _open () {
+  async _open() {
     await binding.open(this._handle, this._vfs._handle, this.name)
   }
 
-  async _close () {
+  async _close() {
     if (this.opened) await binding.close(this._handle)
 
     this._vfs.destroy()

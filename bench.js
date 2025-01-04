@@ -8,7 +8,9 @@ test('select 1', async (t) => {
 
     const db = new SQLite()
 
-    await db.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
+    await db.exec(
+      'CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);'
+    )
 
     for (let i = 0; i < 1000; i++) {
       await db.exec(`INSERT INTO records (NAME) values ('${i}');`)
@@ -22,7 +24,7 @@ test('select 1', async (t) => {
 
     await db.close()
 
-    t.comment(Math.round(ops / elapsed * 1e3), 'ops/s')
+    t.comment(Math.round((ops / elapsed) * 1e3), 'ops/s')
   })
 })
 
@@ -34,7 +36,9 @@ test('select 100', async (t) => {
 
     const db = new SQLite()
 
-    await db.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
+    await db.exec(
+      'CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);'
+    )
 
     for (let i = 0; i < 1000; i++) {
       await db.exec(`INSERT INTO records (NAME) values ('${i}');`)
@@ -48,6 +52,6 @@ test('select 100', async (t) => {
 
     await db.close()
 
-    t.comment(Math.round(ops / elapsed * 1e3), 'ops/s')
+    t.comment(Math.round((ops / elapsed) * 1e3), 'ops/s')
   })
 })

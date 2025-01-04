@@ -124,7 +124,7 @@ typedef struct {
 static const size_t sqlite3_native__queue_limit = 64;
 
 static bool
-sqlite3_native__ends_with (const char *string, const char *suffix) {
+sqlite3_native__ends_with(const char *string, const char *suffix) {
   size_t string_len = strlen(string);
   size_t suffix_len = strlen(suffix);
 
@@ -134,7 +134,7 @@ sqlite3_native__ends_with (const char *string, const char *suffix) {
 }
 
 static int
-sqlite3_native__get_file_type (int flags) {
+sqlite3_native__get_file_type(int flags) {
   if (flags & SQLITE_OPEN_MAIN_DB) return 0;
   if (flags & SQLITE_OPEN_MAIN_JOURNAL) return 1;
   if (flags & SQLITE_OPEN_WAL) return 2;
@@ -143,7 +143,7 @@ sqlite3_native__get_file_type (int flags) {
 }
 
 static int
-sqlite3_native__get_file_type_from_name (const char *name) {
+sqlite3_native__get_file_type_from_name(const char *name) {
   if (sqlite3_native__ends_with(name, "-journal")) return 1;
   if (sqlite3_native__ends_with(name, "-wal")) return 2;
 
@@ -151,12 +151,12 @@ sqlite3_native__get_file_type_from_name (const char *name) {
 }
 
 static int
-sqlite3_native__on_vfs_close (sqlite3_file *handle) {
+sqlite3_native__on_vfs_close(sqlite3_file *handle) {
   return SQLITE_OK;
 }
 
 static js_value_t *
-sqlite3_native__on_vfs_read_done (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native__on_vfs_read_done(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   sqlite3_native_read_t *data;
@@ -175,7 +175,7 @@ sqlite3_native__on_vfs_read_done (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_vfs_read_call (js_env_t *env, js_value_t *on_read, void *context, void *arg) {
+sqlite3_native__on_vfs_read_call(js_env_t *env, js_value_t *on_read, void *context, void *arg) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) context;
@@ -205,7 +205,7 @@ sqlite3_native__on_vfs_read_call (js_env_t *env, js_value_t *on_read, void *cont
 }
 
 static int
-sqlite3_native__on_vfs_read (sqlite3_file *handle, void *buf, int len, sqlite3_int64 offset) {
+sqlite3_native__on_vfs_read(sqlite3_file *handle, void *buf, int len, sqlite3_int64 offset) {
   int err;
 
   sqlite3_native_file_t *file = (sqlite3_native_file_t *) handle;
@@ -228,7 +228,7 @@ sqlite3_native__on_vfs_read (sqlite3_file *handle, void *buf, int len, sqlite3_i
 }
 
 static js_value_t *
-sqlite3_native__on_vfs_write_done (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native__on_vfs_write_done(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   sqlite3_native_write_t *data;
@@ -247,7 +247,7 @@ sqlite3_native__on_vfs_write_done (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_vfs_write_call (js_env_t *env, js_value_t *on_write, void *context, void *arg) {
+sqlite3_native__on_vfs_write_call(js_env_t *env, js_value_t *on_write, void *context, void *arg) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) context;
@@ -277,7 +277,7 @@ sqlite3_native__on_vfs_write_call (js_env_t *env, js_value_t *on_write, void *co
 }
 
 static int
-sqlite3_native__on_vfs_write (sqlite3_file *handle, const void *buf, int len, sqlite_int64 offset) {
+sqlite3_native__on_vfs_write(sqlite3_file *handle, const void *buf, int len, sqlite_int64 offset) {
   int err;
 
   sqlite3_native_file_t *file = (sqlite3_native_file_t *) handle;
@@ -300,17 +300,17 @@ sqlite3_native__on_vfs_write (sqlite3_file *handle, const void *buf, int len, sq
 }
 
 static int
-sqlite3_native__on_vfs_truncate (sqlite3_file *handle, sqlite_int64 size) {
+sqlite3_native__on_vfs_truncate(sqlite3_file *handle, sqlite_int64 size) {
   return SQLITE_OK;
 }
 
 static int
-sqlite3_native__on_vfs_sync (sqlite3_file *handle, int flags) {
+sqlite3_native__on_vfs_sync(sqlite3_file *handle, int flags) {
   return SQLITE_OK;
 }
 
 static js_value_t *
-sqlite3_native__on_vfs_size_done (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native__on_vfs_size_done(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   sqlite3_native_size_t *data;
@@ -332,7 +332,7 @@ sqlite3_native__on_vfs_size_done (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_vfs_size_call (js_env_t *env, js_value_t *on_size, void *context, void *arg) {
+sqlite3_native__on_vfs_size_call(js_env_t *env, js_value_t *on_size, void *context, void *arg) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) context;
@@ -356,7 +356,7 @@ sqlite3_native__on_vfs_size_call (js_env_t *env, js_value_t *on_size, void *cont
 }
 
 static int
-sqlite3_native__on_vfs_size (sqlite3_file *handle, sqlite_int64 *size) {
+sqlite3_native__on_vfs_size(sqlite3_file *handle, sqlite_int64 *size) {
   int err;
 
   sqlite3_native_file_t *file = (sqlite3_native_file_t *) handle;
@@ -378,38 +378,38 @@ sqlite3_native__on_vfs_size (sqlite3_file *handle, sqlite_int64 *size) {
 }
 
 static int
-sqlite3_native__on_vfs_lock (sqlite3_file *handle, int eLock) {
+sqlite3_native__on_vfs_lock(sqlite3_file *handle, int eLock) {
   return SQLITE_OK;
 }
 
 static int
-sqlite3_native__on_vfs_unlock (sqlite3_file *sql_file, int eLock) {
+sqlite3_native__on_vfs_unlock(sqlite3_file *sql_file, int eLock) {
   return SQLITE_OK;
 }
 
 static int
-sqlite3_native__on_vfs_check_reserved_lock (sqlite3_file *sql_file, int *pResOut) {
+sqlite3_native__on_vfs_check_reserved_lock(sqlite3_file *sql_file, int *pResOut) {
   *pResOut = 0;
   return SQLITE_OK;
 }
 
 static int
-sqlite3_native__on_vfs_control (sqlite3_file *sql_file, int op, void *pArg) {
+sqlite3_native__on_vfs_control(sqlite3_file *sql_file, int op, void *pArg) {
   return SQLITE_OK;
 }
 
 static int
-sqlite3_native__on_vfs_sector_size (sqlite3_file *sql_file) {
+sqlite3_native__on_vfs_sector_size(sqlite3_file *sql_file) {
   return 0;
 }
 
 static int
-sqlite3_native__on_vfs_device_characteristics (sqlite3_file *sql_file) {
+sqlite3_native__on_vfs_device_characteristics(sqlite3_file *sql_file) {
   return 0;
 }
 
 static int
-sqlite3_native__on_vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *handle, int flags, int *pflags) {
+sqlite3_native__on_vfs_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *handle, int flags, int *pflags) {
   sqlite3_native_file_t *file = (sqlite3_native_file_t *) handle;
 
   file->type = sqlite3_native__get_file_type(flags);
@@ -438,7 +438,7 @@ sqlite3_native__on_vfs_open (sqlite3_vfs *vfs, const char *name, sqlite3_file *h
 }
 
 static js_value_t *
-sqlite3_native__on_vfs_delete_done (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native__on_vfs_delete_done(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   sqlite3_native_delete_t *data;
@@ -457,7 +457,7 @@ sqlite3_native__on_vfs_delete_done (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_vfs_delete_call (js_env_t *env, js_value_t *on_delete, void *context, void *arg) {
+sqlite3_native__on_vfs_delete_call(js_env_t *env, js_value_t *on_delete, void *context, void *arg) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) context;
@@ -483,7 +483,7 @@ sqlite3_native__on_vfs_delete_call (js_env_t *env, js_value_t *on_delete, void *
 }
 
 static int
-sqlite3_native__on_vfs_delete (sqlite3_vfs *handle, const char *name, int sync) {
+sqlite3_native__on_vfs_delete(sqlite3_vfs *handle, const char *name, int sync) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) handle;
@@ -503,7 +503,7 @@ sqlite3_native__on_vfs_delete (sqlite3_vfs *handle, const char *name, int sync) 
 }
 
 static js_value_t *
-sqlite3_native__on_vfs_access_done (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native__on_vfs_access_done(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   sqlite3_native_access_t *data;
@@ -525,7 +525,7 @@ sqlite3_native__on_vfs_access_done (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_vfs_access_call (js_env_t *env, js_value_t *on_access, void *context, void *arg) {
+sqlite3_native__on_vfs_access_call(js_env_t *env, js_value_t *on_access, void *context, void *arg) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) context;
@@ -551,7 +551,7 @@ sqlite3_native__on_vfs_access_call (js_env_t *env, js_value_t *on_access, void *
 }
 
 static int
-sqlite3_native__on_vfs_access (sqlite3_vfs *handle, const char *name, int flags, int *exists) {
+sqlite3_native__on_vfs_access(sqlite3_vfs *handle, const char *name, int flags, int *exists) {
   int err;
 
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) handle;
@@ -573,7 +573,7 @@ sqlite3_native__on_vfs_access (sqlite3_vfs *handle, const char *name, int flags,
 }
 
 static int
-sqlite3_native__on_vfs_fullpathname (sqlite3_vfs *vfs, const char *name, int len, char *out) {
+sqlite3_native__on_vfs_fullpathname(sqlite3_vfs *vfs, const char *name, int len, char *out) {
   if (strlen(name) >= len) return SQLITE_ERROR;
 
   strcpy(out, name);
@@ -582,12 +582,12 @@ sqlite3_native__on_vfs_fullpathname (sqlite3_vfs *vfs, const char *name, int len
 }
 
 static void *
-sqlite3_native__on_vfs_dlopen (sqlite3_vfs *vfs, const char *zPath) {
+sqlite3_native__on_vfs_dlopen(sqlite3_vfs *vfs, const char *zPath) {
   return 0;
 }
 
 static void
-sqlite3_native__on_vfs_dlerror (sqlite3_vfs *vfs, int nByte, char *zErrMsg) {
+sqlite3_native__on_vfs_dlerror(sqlite3_vfs *vfs, int nByte, char *zErrMsg) {
   zErrMsg[nByte - 1] = '\0';
 }
 
@@ -596,24 +596,24 @@ static void (*(sqlite3_native__on_vfs_dlsym) (sqlite3_vfs *vfs, void *pH, const 
 }
 
 static void
-sqlite3_native__on_vfs_dlclose (sqlite3_vfs *vfs, void *pHandle) {
+sqlite3_native__on_vfs_dlclose(sqlite3_vfs *vfs, void *pHandle) {
   return;
 }
 
 static int
-sqlite3_native__on_vfs_randomness (sqlite3_vfs *vfs, int bytes, char *buf) {
+sqlite3_native__on_vfs_randomness(sqlite3_vfs *vfs, int bytes, char *buf) {
   memset(buf, 0, bytes);
 
   return SQLITE_OK;
 }
 
 static int
-sqlite3_native__on_vfs_sleep (sqlite3_vfs *vfs, int nMicro) {
+sqlite3_native__on_vfs_sleep(sqlite3_vfs *vfs, int nMicro) {
   return 0;
 }
 
 static int
-sqlite3_native__on_vfs_current_time (sqlite3_vfs *vfs, double *time) {
+sqlite3_native__on_vfs_current_time(sqlite3_vfs *vfs, double *time) {
   int err;
 
   uv_timespec64_t ts;
@@ -626,7 +626,7 @@ sqlite3_native__on_vfs_current_time (sqlite3_vfs *vfs, double *time) {
 }
 
 static js_value_t *
-sqlite3_native_vfs_init (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native_vfs_init(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 6;
@@ -676,7 +676,7 @@ sqlite3_native_vfs_init (js_env_t *env, js_callback_info_t *info) {
   err = js_create_threadsafe_function(env, argv[5], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_delete_call, &vfs->on_delete);
   assert(err == 0);
 
-  vfs->handle = (sqlite3_vfs){
+  vfs->handle = (sqlite3_vfs) {
     1, // Version
     sizeof(sqlite3_native_file_t),
     sizeof(sqlite3_native_path_t),
@@ -703,7 +703,7 @@ sqlite3_native_vfs_init (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-sqlite3_native_vfs_destroy (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native_vfs_destroy(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -745,7 +745,7 @@ sqlite3_native_vfs_destroy (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_result_call (js_env_t *env, js_value_t *on_result, void *context, void *arg) {
+sqlite3_native__on_result_call(js_env_t *env, js_value_t *on_result, void *context, void *arg) {
   int err;
 
   sqlite3_native_t *db = (sqlite3_native_t *) context;
@@ -803,7 +803,7 @@ sqlite3_native__on_result_call (js_env_t *env, js_value_t *on_result, void *cont
 }
 
 static int
-sqlite3_native__on_result (void *arg, int len, char **rows, char **columns) {
+sqlite3_native__on_result(void *arg, int len, char **rows, char **columns) {
   int err;
 
   sqlite3_native_exec_t *data = (sqlite3_native_exec_t *) arg;
@@ -821,7 +821,7 @@ sqlite3_native__on_result (void *arg, int len, char **rows, char **columns) {
 }
 
 static js_value_t *
-sqlite3_native_init (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native_init(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   js_value_t *handle;
@@ -839,7 +839,7 @@ sqlite3_native_init (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_after_open (uv_work_t *handle, int status) {
+sqlite3_native__on_after_open(uv_work_t *handle, int status) {
   int err;
 
   sqlite3_native_open_t *req = (sqlite3_native_open_t *) handle->data;
@@ -866,7 +866,7 @@ sqlite3_native__on_after_open (uv_work_t *handle, int status) {
 }
 
 static void
-sqlite3_native__on_before_open (uv_work_t *handle) {
+sqlite3_native__on_before_open(uv_work_t *handle) {
   int err;
 
   sqlite3_native_open_t *req = (sqlite3_native_open_t *) handle->data;
@@ -876,7 +876,7 @@ sqlite3_native__on_before_open (uv_work_t *handle) {
 }
 
 static js_value_t *
-sqlite3_native_open (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native_open(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 3;
@@ -923,7 +923,7 @@ sqlite3_native_open (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_after_close (uv_work_t *handle, int status) {
+sqlite3_native__on_after_close(uv_work_t *handle, int status) {
   int err;
 
   sqlite3_native_close_t *req = (sqlite3_native_close_t *) handle->data;
@@ -953,7 +953,7 @@ sqlite3_native__on_after_close (uv_work_t *handle, int status) {
 }
 
 static void
-sqlite3_native__on_before_close (uv_work_t *handle) {
+sqlite3_native__on_before_close(uv_work_t *handle) {
   int err;
 
   sqlite3_native_close_t *req = (sqlite3_native_close_t *) handle->data;
@@ -963,7 +963,7 @@ sqlite3_native__on_before_close (uv_work_t *handle) {
 }
 
 static js_value_t *
-sqlite3_native_close (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native_close(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 1;
@@ -999,7 +999,7 @@ sqlite3_native_close (js_env_t *env, js_callback_info_t *info) {
 }
 
 static void
-sqlite3_native__on_after_exec (uv_work_t *handle, int status) {
+sqlite3_native__on_after_exec(uv_work_t *handle, int status) {
   int err;
 
   sqlite3_native_exec_t *req = (sqlite3_native_exec_t *) handle->data;
@@ -1044,7 +1044,7 @@ sqlite3_native__on_after_exec (uv_work_t *handle, int status) {
 }
 
 static void
-sqlite3_native__on_before_exec (uv_work_t *handle) {
+sqlite3_native__on_before_exec(uv_work_t *handle) {
   int err;
 
   sqlite3_native_exec_t *req = (sqlite3_native_exec_t *) handle->data;
@@ -1060,7 +1060,7 @@ sqlite3_native__on_before_exec (uv_work_t *handle) {
 }
 
 static js_value_t *
-sqlite3_native_exec (js_env_t *env, js_callback_info_t *info) {
+sqlite3_native_exec(js_env_t *env, js_callback_info_t *info) {
   int err;
 
   size_t argc = 2;
@@ -1116,7 +1116,7 @@ sqlite3_native_exec (js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
-sqlite3_native_exports (js_env_t *env, js_value_t *exports) {
+sqlite3_native_exports(js_env_t *env, js_value_t *exports) {
   int err;
 
 #define V(name, fn) \
