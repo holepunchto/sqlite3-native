@@ -1,6 +1,6 @@
 {
   "name": "sqlite3-native",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Asynchronous SQLite3 bindings for JavaScript with VFS support",
   "exports": {
     ".": "./index.js",
