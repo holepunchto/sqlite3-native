@@ -17,7 +17,10 @@
   ],
   "addon": true,
   "scripts": {
-    "test": "prettier . --check && bare test.js"
+    "test": "npm run lint && npm run test:bare && npm run test:node",
+    "test:bare": "bare test.js",
+    "test:node": "node test.js",
+    "lint": "prettier . --check"
   },
   "repository": {
     "type": "git",
