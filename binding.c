@@ -11,6 +11,8 @@
 
 typedef utf8_t sqlite3_native_path_t[4096];
 
+typedef void (*sqlite3_native_dlsym_t)(void);
+
 typedef struct {
   sqlite3 *handle;
 
@@ -682,8 +684,9 @@ sqlite3_native__on_vfs_dlerror(sqlite3_vfs *vfs, int nByte, char *zErrMsg) {
   zErrMsg[nByte - 1] = '\0';
 }
 
-static void (*(sqlite3_native__on_vfs_dlsym) (sqlite3_vfs * vfs, void *pH, const char *z))(void) {
-  return 0;
+static sqlite3_native_dlsym_t
+sqlite3_native__on_vfs_dlsym(sqlite3_vfs *vfs, void *handle, const char *symbol) {
+  return NULL;
 }
 
 static void
