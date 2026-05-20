@@ -50,6 +50,8 @@ typedef struct {
   void *buf;
   int len;
   int64_t offset;
+
+  int status;
 } sqlite3_native_read_t;
 
 typedef struct {
@@ -58,12 +60,16 @@ typedef struct {
   const void *buf;
   int len;
   int64_t offset;
+
+  int status;
 } sqlite3_native_write_t;
 
 typedef struct {
   sqlite3_native_file_t *file;
 
   int64_t size;
+
+  int status;
 } sqlite3_native_size_t;
 
 typedef struct {
@@ -72,6 +78,8 @@ typedef struct {
   const char *name;
   int flags;
   bool exists;
+
+  int status;
 } sqlite3_native_access_t;
 
 typedef struct {
@@ -79,6 +87,8 @@ typedef struct {
 
   const char *name;
   bool sync;
+
+  int status;
 } sqlite3_native_delete_t;
 
 typedef struct {
@@ -143,6 +153,19 @@ sqlite3_native__get_file_type(int flags) {
 }
 
 static int
+sqlite3_native__error_from(js_env_t *env, js_value_t *value, int code) {
+  int err;
+
+  js_value_type_t type;
+  err = js_typeof(env, value, &type);
+  assert(err == 0);
+
+  if (type == js_null || type == js_undefined) return SQLITE_OK;
+
+  return code;
+}
+
+static int
 sqlite3_native__get_file_type_from_name(const char *name) {
   if (sqlite3_native__ends_with(name, "-journal")) return 1;
   if (sqlite3_native__ends_with(name, "-wal")) return 2;
@@ -168,6 +191,8 @@ sqlite3_native__on_vfs_read_done(js_env_t *env, js_callback_info_t *info) {
   assert(err == 0);
 
   assert(argc == 1);
+
+  data->status = sqlite3_native__error_from(env, argv[0], SQLITE_IOERR_READ);
 
   uv_sem_post(&data->file->vfs->done);
 
@@ -224,7 +249,7 @@ sqlite3_native__on_vfs_read(sqlite3_file *handle, void *buf, int len, sqlite3_in
 
   uv_sem_wait(&vfs->done);
 
-  return SQLITE_OK;
+  return data.status;
 }
 
 static js_value_t *
@@ -240,6 +265,8 @@ sqlite3_native__on_vfs_write_done(js_env_t *env, js_callback_info_t *info) {
   assert(err == 0);
 
   assert(argc == 1);
+
+  data->status = sqlite3_native__error_from(env, argv[0], SQLITE_IOERR_WRITE);
 
   uv_sem_post(&data->file->vfs->done);
 
@@ -296,7 +323,7 @@ sqlite3_native__on_vfs_write(sqlite3_file *handle, const void *buf, int len, sql
 
   uv_sem_wait(&vfs->done);
 
-  return SQLITE_OK;
+  return data.status;
 }
 
 static int
@@ -321,10 +348,16 @@ sqlite3_native__on_vfs_size_done(js_env_t *env, js_callback_info_t *info) {
   err = js_get_callback_info(env, info, &argc, argv, NULL, (void **) &data);
   assert(err == 0);
 
-  assert(argc == 2);
+  assert(argc >= 1);
 
-  err = js_get_value_int64(env, argv[1], &data->size);
-  assert(err == 0);
+  data->status = sqlite3_native__error_from(env, argv[0], SQLITE_IOERR_FSTAT);
+
+  if (data->status == SQLITE_OK) {
+    assert(argc == 2);
+
+    err = js_get_value_int64(env, argv[1], &data->size);
+    assert(err == 0);
+  }
 
   uv_sem_post(&data->file->vfs->done);
 
@@ -371,6 +404,8 @@ sqlite3_native__on_vfs_size(sqlite3_file *handle, sqlite_int64 *size) {
   assert(err == 0);
 
   uv_sem_wait(&vfs->done);
+
+  if (data.status != SQLITE_OK) return data.status;
 
   *size = data.size;
 
@@ -453,6 +488,8 @@ sqlite3_native__on_vfs_delete_done(js_env_t *env, js_callback_info_t *info) {
 
   assert(argc == 1);
 
+  data->status = sqlite3_native__error_from(env, argv[0], SQLITE_IOERR_DELETE);
+
   uv_sem_post(&data->vfs->done);
 
   return NULL;
@@ -501,7 +538,7 @@ sqlite3_native__on_vfs_delete(sqlite3_vfs *handle, const char *name, int sync) {
 
   uv_sem_wait(&vfs->done);
 
-  return SQLITE_OK;
+  return data.status;
 }
 
 static js_value_t *
@@ -516,10 +553,16 @@ sqlite3_native__on_vfs_access_done(js_env_t *env, js_callback_info_t *info) {
   err = js_get_callback_info(env, info, &argc, argv, NULL, (void **) &data);
   assert(err == 0);
 
-  assert(argc == 2);
+  assert(argc >= 1);
 
-  err = js_get_value_bool(env, argv[1], &data->exists);
-  assert(err == 0);
+  data->status = sqlite3_native__error_from(env, argv[0], SQLITE_IOERR_ACCESS);
+
+  if (data->status == SQLITE_OK) {
+    assert(argc == 2);
+
+    err = js_get_value_bool(env, argv[1], &data->exists);
+    assert(err == 0);
+  }
 
   uv_sem_post(&data->vfs->done);
 
@@ -568,6 +611,8 @@ sqlite3_native__on_vfs_access(sqlite3_vfs *handle, const char *name, int flags, 
   assert(err == 0);
 
   uv_sem_wait(&vfs->done);
+
+  if (data.status != SQLITE_OK) return data.status;
 
   *exists = data.exists;
 
