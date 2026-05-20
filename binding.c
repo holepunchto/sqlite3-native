@@ -143,13 +143,65 @@ sqlite3_native__ends_with(const char *string, const char *suffix) {
   return strncmp(string + string_len - suffix_len, suffix, suffix_len) == 0;
 }
 
+static bool
+sqlite3_native__is_hex_digit(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F');
+}
+
+static bool
+sqlite3_native__is_super_journal(const char *name) {
+  size_t len = strlen(name);
+
+  if (len < 12) return false;
+
+  const char *suffix = name + len - 12;
+
+  if (suffix[0] != '-' || suffix[1] != 'm' || suffix[2] != 'j') return false;
+  if (suffix[9] != '9') return false;
+
+  for (size_t i = 3; i < 9; i++) {
+    if (!sqlite3_native__is_hex_digit(suffix[i])) return false;
+  }
+
+  for (size_t i = 10; i < 12; i++) {
+    if (!sqlite3_native__is_hex_digit(suffix[i])) return false;
+  }
+
+  return true;
+}
+
+enum {
+  SQLITE3_NATIVE_FILE_MAIN_DB = 0,
+  SQLITE3_NATIVE_FILE_MAIN_JOURNAL = 1,
+  SQLITE3_NATIVE_FILE_WAL = 2,
+  SQLITE3_NATIVE_FILE_TEMP_DB = 3,
+  SQLITE3_NATIVE_FILE_TEMP_JOURNAL = 4,
+  SQLITE3_NATIVE_FILE_TRANSIENT_DB = 5,
+  SQLITE3_NATIVE_FILE_SUBJOURNAL = 6,
+  SQLITE3_NATIVE_FILE_SUPER_JOURNAL = 7,
+};
+
 static int
 sqlite3_native__get_file_type(int flags) {
-  if (flags & SQLITE_OPEN_MAIN_DB) return 0;
-  if (flags & SQLITE_OPEN_MAIN_JOURNAL) return 1;
-  if (flags & SQLITE_OPEN_WAL) return 2;
+  if (flags & SQLITE_OPEN_MAIN_DB) return SQLITE3_NATIVE_FILE_MAIN_DB;
+  if (flags & SQLITE_OPEN_MAIN_JOURNAL) return SQLITE3_NATIVE_FILE_MAIN_JOURNAL;
+  if (flags & SQLITE_OPEN_WAL) return SQLITE3_NATIVE_FILE_WAL;
+  if (flags & SQLITE_OPEN_TEMP_DB) return SQLITE3_NATIVE_FILE_TEMP_DB;
+  if (flags & SQLITE_OPEN_TEMP_JOURNAL) return SQLITE3_NATIVE_FILE_TEMP_JOURNAL;
+  if (flags & SQLITE_OPEN_TRANSIENT_DB) return SQLITE3_NATIVE_FILE_TRANSIENT_DB;
+  if (flags & SQLITE_OPEN_SUBJOURNAL) return SQLITE3_NATIVE_FILE_SUBJOURNAL;
+  if (flags & SQLITE_OPEN_SUPER_JOURNAL) return SQLITE3_NATIVE_FILE_SUPER_JOURNAL;
 
   return -1;
+}
+
+static int
+sqlite3_native__get_file_type_from_name(const char *name) {
+  if (sqlite3_native__ends_with(name, "-journal")) return SQLITE3_NATIVE_FILE_MAIN_JOURNAL;
+  if (sqlite3_native__ends_with(name, "-wal")) return SQLITE3_NATIVE_FILE_WAL;
+  if (sqlite3_native__is_super_journal(name)) return SQLITE3_NATIVE_FILE_SUPER_JOURNAL;
+
+  return SQLITE3_NATIVE_FILE_MAIN_DB;
 }
 
 static int
@@ -163,14 +215,6 @@ sqlite3_native__error_from(js_env_t *env, js_value_t *value, int code) {
   if (type == js_null || type == js_undefined) return SQLITE_OK;
 
   return code;
-}
-
-static int
-sqlite3_native__get_file_type_from_name(const char *name) {
-  if (sqlite3_native__ends_with(name, "-journal")) return 1;
-  if (sqlite3_native__ends_with(name, "-wal")) return 2;
-
-  return 0;
 }
 
 static int
@@ -638,7 +682,7 @@ sqlite3_native__on_vfs_dlerror(sqlite3_vfs *vfs, int nByte, char *zErrMsg) {
   zErrMsg[nByte - 1] = '\0';
 }
 
-static void (*(sqlite3_native__on_vfs_dlsym) (sqlite3_vfs *vfs, void *pH, const char *z))(void) {
+static void (*(sqlite3_native__on_vfs_dlsym) (sqlite3_vfs * vfs, void *pH, const char *z))(void) {
   return 0;
 }
 
