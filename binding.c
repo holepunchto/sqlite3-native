@@ -414,6 +414,8 @@ sqlite3_native__on_vfs_open(sqlite3_vfs *vfs, const char *name, sqlite3_file *ha
 
   file->type = sqlite3_native__get_file_type(flags);
 
+  if (file->type < 0) return SQLITE_CANTOPEN;
+
   file->vfs = (sqlite3_native_vfs_t *) vfs;
 
   static const sqlite3_io_methods methods = {
