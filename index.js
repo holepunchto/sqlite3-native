@@ -2,6 +2,7 @@ const ReadyResource = require('ready-resource')
 const binding = require('./binding')
 const VFS = require('./lib/vfs')
 const MemoryVFS = require('./lib/memory-vfs')
+const CacheVFS = require('./lib/cache-vfs')
 const constants = require('./lib/constants')
 
 module.exports = exports = class SQLite3 extends ReadyResource {
@@ -48,4 +49,5 @@ module.exports = exports = class SQLite3 extends ReadyResource {
 
 exports.VFS = VFS
 exports.MemoryVFS = MemoryVFS
+exports.CacheVFS = CacheVFS
 exports.constants = constants
