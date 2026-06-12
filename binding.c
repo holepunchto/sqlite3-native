@@ -1567,6 +1567,49 @@ sqlite3_native_cache_vfs_apply(js_env_t *env, js_callback_info_t *info) {
 }
 
 static js_value_t *
+sqlite3_native_cache_vfs_invalidate(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 2;
+  js_value_t *argv[2];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 2);
+
+  sqlite3_native_cache_vfs_t *vfs;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &vfs, NULL);
+  assert(err == 0);
+
+  uint8_t *mask;
+  size_t mask_len;
+  err = js_get_typedarray_info(env, argv[1], NULL, (void **) &mask, &mask_len, NULL, NULL);
+  assert(err == 0);
+
+  uv_mutex_lock(&vfs->lock);
+
+  size_t len = mask_len < vfs->bitmap_len ? mask_len : vfs->bitmap_len;
+
+  for (size_t i = 0; i < len; i++) {
+    vfs->bitmap[i] &= ~mask[i];
+  }
+
+  // a cleared bit only ever causes a refetch, but it must hit disk before
+  // the caller persists the version it invalidated against
+  int res = sqlite3_native__cache_flush_bitmap(vfs);
+
+  uv_mutex_unlock(&vfs->lock);
+
+  if (res < 0) {
+    js_throw_errorf(env, NULL, "invalidatePages failed: %s", uv_strerror(res));
+    return NULL;
+  }
+
+  return NULL;
+}
+
+static js_value_t *
 sqlite3_native_cache_vfs_destroy(js_env_t *env, js_callback_info_t *info) {
   int err;
 
@@ -2128,6 +2171,7 @@ sqlite3_native_exports(js_env_t *env, js_value_t *exports) {
 
   V("cacheVfsInit", sqlite3_native_cache_vfs_init)
   V("cacheVfsApply", sqlite3_native_cache_vfs_apply)
+  V("cacheVfsInvalidate", sqlite3_native_cache_vfs_invalidate)
   V("cacheVfsDestroy", sqlite3_native_cache_vfs_destroy)
 
   V("init", sqlite3_native_init)

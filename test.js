@@ -183,3 +183,58 @@ test('cache vfs: applyPages bootstraps and updates a live connection', async (t)
   t.alike(after[1].rows, ['2', 'andrew'].slice(1))
   await replica.close()
 })
+
+test('cache vfs: invalidatePages forces changed pages back through the miss handler', async (t) => {
+  const dir = tmp(t)
+
+  const source = new SQLite3({ vfs: new CacheVFS(dir + '/source') })
+  await source.exec('CREATE TABLE records (ID INTEGER PRIMARY KEY AUTOINCREMENT, NAME TEXT NOT NULL);')
+  await source.exec("INSERT INTO records (NAME) values ('mathias');")
+  await source.close()
+
+  let image = fs.readFileSync(dir + '/source')
+  const misses = []
+
+  // bootstrap a full replica via applyPages, misses serve the current image
+  const vfs = new CacheVFS(dir + '/replica', {
+    miss(buffer, index) {
+      misses.push(index)
+      image.copy(buffer, 0, index * PAGE_SIZE, Math.min((index + 1) * PAGE_SIZE, image.byteLength))
+    }
+  })
+
+  const updates = []
+  for (let i = 0; i * PAGE_SIZE < image.byteLength; i++) {
+    const page = Buffer.alloc(PAGE_SIZE)
+    image.copy(page, 0, i * PAGE_SIZE, Math.min((i + 1) * PAGE_SIZE, image.byteLength))
+    updates.push({ index: i, page })
+  }
+  vfs.applyPages(updates, image.byteLength)
+
+  const replica = new SQLite3({ vfs })
+  const before = await replica.exec('SELECT NAME FROM records;')
+  t.alike(before[0].rows, ['mathias'])
+  t.is(misses.length, 0, 'fully present, no misses')
+
+  // a remote writer commits; lazy checkpoint = invalidate the changed pages
+  const writer = new SQLite3({ vfs: new CacheVFS(dir + '/source') })
+  await writer.exec("INSERT INTO records (NAME) values ('andrew');")
+  await writer.close()
+
+  const prev = image
+  image = fs.readFileSync(dir + '/source')
+
+  const mask = Buffer.alloc(Math.ceil(image.byteLength / PAGE_SIZE / 8) + 1)
+  for (let i = 0; i * PAGE_SIZE < image.byteLength; i++) {
+    const a = prev.subarray(i * PAGE_SIZE, (i + 1) * PAGE_SIZE)
+    const b = image.subarray(i * PAGE_SIZE, (i + 1) * PAGE_SIZE)
+    if (!a.equals(b)) mask[i >> 3] |= 1 << (i & 7)
+  }
+  vfs.invalidatePages(mask)
+  vfs.applyPages([], image.byteLength)
+
+  const after = await replica.exec('SELECT NAME FROM records;')
+  t.is(after.length, 2, 'live connection sees rows fetched on demand')
+  t.ok(misses.length > 0, `refetched ${misses.length} invalidated pages`)
+  await replica.close()
+})
