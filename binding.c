@@ -95,6 +95,51 @@ typedef struct {
 } sqlite3_native_delete_t;
 
 typedef struct {
+  sqlite3_vfs handle;
+
+  char name[64];
+  char dlerror[256];
+
+  // ^ the fields above must mirror sqlite3_native_vfs_t: open() reads ->name
+  // and the shared dl* callbacks read ->dlerror through that type.
+
+  js_env_t *env;
+  js_ref_t *ctx;
+
+  js_threadsafe_function_t *on_miss;
+
+  uv_sem_t done;
+  uv_mutex_t lock;
+
+  sqlite3_native_path_t path;
+  int page_size;
+
+  uv_file fd;
+  uv_file bitmap_fd;
+  uint8_t *bitmap;
+  size_t bitmap_len;
+} sqlite3_native_cache_vfs_t;
+
+typedef struct {
+  sqlite3_file handle;
+
+  int type;
+  uv_file fd;
+  bool delete_on_close;
+
+  sqlite3_native_cache_vfs_t *vfs;
+} sqlite3_native_cache_file_t;
+
+typedef struct {
+  sqlite3_native_cache_vfs_t *vfs;
+
+  void *buf;
+  int64_t index;
+
+  int status;
+} sqlite3_native_cache_miss_t;
+
+typedef struct {
   uv_work_t handle;
 
   sqlite3_native_t *db;
@@ -880,6 +925,732 @@ sqlite3_native_vfs_destroy(js_env_t *env, js_callback_info_t *info) {
   return NULL;
 }
 
+// Cache VFS: a native file-backed VFS. All IO is plain pread/pwrite on local
+// files; the main database additionally keeps a presence bitmap (sidecar
+// <path>.map) and pages whose bit is unset are fetched through a JS miss
+// callback before the read is served. applyPages() lets JS atomically patch
+// pages into the cache file (the checkpoint path) — it must only be called
+// while no statement is executing.
+
+static const char *sqlite3_native__cache_suffixes[8] = {
+  "", "-journal", "-wal", "-temp3", "-temp4", "-temp5", "-temp6", "-temp7"
+};
+
+static void
+sqlite3_native__cache_path(sqlite3_native_cache_vfs_t *vfs, int type, char *out, size_t len) {
+  snprintf(out, len, "%s%s", (char *) vfs->path, sqlite3_native__cache_suffixes[type]);
+}
+
+static bool
+sqlite3_native__cache_has_page(sqlite3_native_cache_vfs_t *vfs, int64_t index) {
+  size_t byte = (size_t) (index >> 3);
+
+  // beyond the tracked range means beyond EOF; nothing to fetch, the read
+  // will come up short and zero fill
+  if (byte >= vfs->bitmap_len) return true;
+
+  return (vfs->bitmap[byte] >> (index & 7)) & 1;
+}
+
+static int
+sqlite3_native__cache_grow_bitmap(sqlite3_native_cache_vfs_t *vfs, int64_t npages) {
+  size_t len = (size_t) ((npages + 7) / 8);
+
+  if (len <= vfs->bitmap_len) return 0;
+
+  uint8_t *bitmap = realloc(vfs->bitmap, len);
+
+  if (bitmap == NULL) return UV_ENOMEM;
+
+  memset(bitmap + vfs->bitmap_len, 0, len - vfs->bitmap_len);
+
+  vfs->bitmap = bitmap;
+  vfs->bitmap_len = len;
+
+  return 0;
+}
+
+static void
+sqlite3_native__cache_shrink_bitmap(sqlite3_native_cache_vfs_t *vfs, int64_t npages) {
+  size_t byte = (size_t) ((npages + 7) / 8);
+
+  if (byte < vfs->bitmap_len) {
+    memset(&vfs->bitmap[byte], 0, vfs->bitmap_len - byte);
+  }
+
+  if (npages & 7 && byte > 0 && byte <= vfs->bitmap_len) {
+    vfs->bitmap[byte - 1] &= (1 << (npages & 7)) - 1;
+  }
+}
+
+static int
+sqlite3_native__cache_set_page(sqlite3_native_cache_vfs_t *vfs, int64_t index, bool persist) {
+  int err = sqlite3_native__cache_grow_bitmap(vfs, index + 1);
+
+  if (err < 0) return err;
+
+  size_t byte = (size_t) (index >> 3);
+
+  vfs->bitmap[byte] |= 1 << (index & 7);
+
+  if (persist) {
+    uv_fs_t req;
+    uv_buf_t buf = uv_buf_init((char *) &vfs->bitmap[byte], 1);
+
+    int res = uv_fs_write(NULL, &req, vfs->bitmap_fd, &buf, 1, byte, NULL);
+    uv_fs_req_cleanup(&req);
+
+    if (res < 0) return res;
+  }
+
+  return 0;
+}
+
+static int
+sqlite3_native__cache_flush_bitmap(sqlite3_native_cache_vfs_t *vfs) {
+  uv_fs_t req;
+  int res;
+
+  uv_buf_t buf = uv_buf_init((char *) vfs->bitmap, vfs->bitmap_len);
+
+  res = uv_fs_write(NULL, &req, vfs->bitmap_fd, &buf, 1, 0, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (res < 0) return res;
+
+  res = uv_fs_ftruncate(NULL, &req, vfs->bitmap_fd, vfs->bitmap_len, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (res < 0) return res;
+
+  res = uv_fs_fsync(NULL, &req, vfs->bitmap_fd, NULL);
+  uv_fs_req_cleanup(&req);
+
+  return res < 0 ? res : 0;
+}
+
+static js_value_t *
+sqlite3_native__on_cache_miss_done(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  sqlite3_native_cache_miss_t *data;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, (void **) &data);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  data->status = sqlite3_native__error_from(env, argv[0], SQLITE_IOERR_READ);
+
+  uv_sem_post(&data->vfs->done);
+
+  return NULL;
+}
+
+static void
+sqlite3_native__on_cache_miss_call(js_env_t *env, js_value_t *on_miss, void *context, void *arg) {
+  int err;
+
+  sqlite3_native_cache_vfs_t *vfs = (sqlite3_native_cache_vfs_t *) context;
+
+  sqlite3_native_cache_miss_t *data = (sqlite3_native_cache_miss_t *) arg;
+
+  js_value_t *ctx;
+  err = js_get_reference_value(env, vfs->ctx, &ctx);
+  assert(err == 0);
+
+  js_value_t *args[3];
+
+  err = js_create_external_arraybuffer(env, data->buf, vfs->page_size, NULL, NULL, &args[0]);
+  assert(err == 0);
+
+  err = js_create_int64(env, data->index, &args[1]);
+  assert(err == 0);
+
+  err = js_create_function(env, "done", -1, sqlite3_native__on_cache_miss_done, (void *) data, &args[2]);
+  assert(err == 0);
+
+  err = js_call_function(env, ctx, on_miss, 3, args, NULL);
+  assert(err == 0);
+}
+
+// fetch a missing page through JS, write it into the cache file and mark it
+// present; runs on the SQLite worker thread with vfs->lock held
+static int
+sqlite3_native__cache_fetch(sqlite3_native_cache_vfs_t *vfs, int64_t index) {
+  int err;
+
+  void *buf = calloc(1, vfs->page_size);
+
+  if (buf == NULL) return SQLITE_IOERR_NOMEM;
+
+  sqlite3_native_cache_miss_t data = {
+    vfs,
+    buf,
+    index,
+    SQLITE_OK
+  };
+
+  err = js_call_threadsafe_function(vfs->on_miss, (void *) &data, js_threadsafe_function_blocking);
+  assert(err == 0);
+
+  uv_sem_wait(&vfs->done);
+
+  if (data.status == SQLITE_OK) {
+    uv_fs_t req;
+    uv_buf_t b = uv_buf_init(buf, vfs->page_size);
+
+    int res = uv_fs_write(NULL, &req, vfs->fd, &b, 1, index * vfs->page_size, NULL);
+    uv_fs_req_cleanup(&req);
+
+    if (res >= 0) {
+      // the page must be durable before its presence bit
+      res = uv_fs_fsync(NULL, &req, vfs->fd, NULL);
+      uv_fs_req_cleanup(&req);
+    }
+
+    if (res >= 0) res = sqlite3_native__cache_set_page(vfs, index, true);
+
+    if (res < 0) data.status = SQLITE_IOERR_WRITE;
+  }
+
+  free(buf);
+
+  return data.status;
+}
+
+static int
+sqlite3_native__on_cache_vfs_close(sqlite3_file *handle) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) handle;
+
+  // the main db fd belongs to the vfs and stays open for applyPages()
+  if (file->type == SQLITE3_NATIVE_FILE_MAIN_DB) return SQLITE_OK;
+
+  uv_fs_t req;
+
+  uv_fs_close(NULL, &req, file->fd, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (file->delete_on_close) {
+    char path[sizeof(sqlite3_native_path_t) + 16];
+    sqlite3_native__cache_path(file->vfs, file->type, path, sizeof(path));
+
+    uv_fs_unlink(NULL, &req, path, NULL);
+    uv_fs_req_cleanup(&req);
+  }
+
+  return SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_read(sqlite3_file *handle, void *buf, int len, sqlite3_int64 offset) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) handle;
+
+  sqlite3_native_cache_vfs_t *vfs = file->vfs;
+
+  bool main_db = file->type == SQLITE3_NATIVE_FILE_MAIN_DB;
+
+  if (main_db) {
+    uv_mutex_lock(&vfs->lock);
+
+    int64_t first = offset / vfs->page_size;
+    int64_t last = (offset + len - 1) / vfs->page_size;
+
+    for (int64_t i = first; i <= last; i++) {
+      if (sqlite3_native__cache_has_page(vfs, i)) continue;
+
+      int status = sqlite3_native__cache_fetch(vfs, i);
+
+      if (status != SQLITE_OK) {
+        uv_mutex_unlock(&vfs->lock);
+        return status;
+      }
+    }
+  }
+
+  uv_fs_t req;
+  uv_buf_t b = uv_buf_init(buf, len);
+
+  int res = uv_fs_read(NULL, &req, file->fd, &b, 1, offset, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (main_db) uv_mutex_unlock(&vfs->lock);
+
+  if (res < 0) return SQLITE_IOERR_READ;
+
+  if (res < len) {
+    memset((char *) buf + res, 0, len - res);
+    return SQLITE_IOERR_SHORT_READ;
+  }
+
+  return SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_write(sqlite3_file *handle, const void *buf, int len, sqlite_int64 offset) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) handle;
+
+  sqlite3_native_cache_vfs_t *vfs = file->vfs;
+
+  bool main_db = file->type == SQLITE3_NATIVE_FILE_MAIN_DB;
+
+  if (main_db) uv_mutex_lock(&vfs->lock);
+
+  uv_fs_t req;
+  uv_buf_t b = uv_buf_init((char *) buf, len);
+
+  int res = uv_fs_write(NULL, &req, file->fd, &b, 1, offset, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (main_db && res >= 0) {
+    // a locally written page is present by definition
+    int64_t first = offset / vfs->page_size;
+    int64_t last = (offset + len - 1) / vfs->page_size;
+
+    for (int64_t i = first; i <= last && res >= 0; i++) {
+      res = sqlite3_native__cache_set_page(vfs, i, true);
+    }
+  }
+
+  if (main_db) uv_mutex_unlock(&vfs->lock);
+
+  return res < 0 ? SQLITE_IOERR_WRITE : SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_truncate(sqlite3_file *handle, sqlite_int64 size) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) handle;
+
+  sqlite3_native_cache_vfs_t *vfs = file->vfs;
+
+  bool main_db = file->type == SQLITE3_NATIVE_FILE_MAIN_DB;
+
+  if (main_db) uv_mutex_lock(&vfs->lock);
+
+  uv_fs_t req;
+
+  int res = uv_fs_ftruncate(NULL, &req, file->fd, size, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (main_db && res >= 0) {
+    sqlite3_native__cache_shrink_bitmap(vfs, size / vfs->page_size);
+    res = sqlite3_native__cache_flush_bitmap(vfs);
+  }
+
+  if (main_db) uv_mutex_unlock(&vfs->lock);
+
+  return res < 0 ? SQLITE_IOERR_TRUNCATE : SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_sync(sqlite3_file *handle, int flags) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) handle;
+
+  uv_fs_t req;
+
+  int res = uv_fs_fsync(NULL, &req, file->fd, NULL);
+  uv_fs_req_cleanup(&req);
+
+  return res < 0 ? SQLITE_IOERR_FSYNC : SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_size(sqlite3_file *handle, sqlite_int64 *size) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) handle;
+
+  uv_fs_t req;
+
+  int res = uv_fs_fstat(NULL, &req, file->fd, NULL);
+
+  if (res < 0) {
+    uv_fs_req_cleanup(&req);
+    return SQLITE_IOERR_FSTAT;
+  }
+
+  *size = req.statbuf.st_size;
+
+  uv_fs_req_cleanup(&req);
+
+  return SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_open(sqlite3_vfs *handle, const char *name, sqlite3_file *file_handle, int flags, int *pflags) {
+  sqlite3_native_cache_file_t *file = (sqlite3_native_cache_file_t *) file_handle;
+
+  file->type = sqlite3_native__get_file_type(flags);
+
+  if (file->type < 0) return SQLITE_CANTOPEN;
+
+  file->vfs = (sqlite3_native_cache_vfs_t *) handle;
+  file->delete_on_close = (flags & SQLITE_OPEN_DELETEONCLOSE) != 0;
+
+  if (file->type == SQLITE3_NATIVE_FILE_MAIN_DB) {
+    file->fd = file->vfs->fd;
+  } else {
+    char path[sizeof(sqlite3_native_path_t) + 16];
+    sqlite3_native__cache_path(file->vfs, file->type, path, sizeof(path));
+
+    uv_fs_t req;
+
+    int res = uv_fs_open(NULL, &req, path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0644, NULL);
+    uv_fs_req_cleanup(&req);
+
+    if (res < 0) return SQLITE_CANTOPEN;
+
+    file->fd = res;
+  }
+
+  static const sqlite3_io_methods methods = {
+    1, // Version
+    sqlite3_native__on_cache_vfs_close,
+    sqlite3_native__on_cache_vfs_read,
+    sqlite3_native__on_cache_vfs_write,
+    sqlite3_native__on_cache_vfs_truncate,
+    sqlite3_native__on_cache_vfs_sync,
+    sqlite3_native__on_cache_vfs_size,
+    sqlite3_native__on_vfs_lock,
+    sqlite3_native__on_vfs_unlock,
+    sqlite3_native__on_vfs_check_reserved_lock,
+    sqlite3_native__on_vfs_control,
+    sqlite3_native__on_vfs_sector_size,
+    sqlite3_native__on_vfs_device_characteristics
+  };
+
+  file->handle.pMethods = &methods;
+
+  return SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_delete(sqlite3_vfs *handle, const char *name, int sync) {
+  sqlite3_native_cache_vfs_t *vfs = (sqlite3_native_cache_vfs_t *) handle;
+
+  int type = sqlite3_native__get_file_type_from_name(name);
+
+  char path[sizeof(sqlite3_native_path_t) + 16];
+  sqlite3_native__cache_path(vfs, type, path, sizeof(path));
+
+  uv_fs_t req;
+
+  int res = uv_fs_unlink(NULL, &req, path, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (res < 0 && res != UV_ENOENT) return SQLITE_IOERR_DELETE;
+
+  return SQLITE_OK;
+}
+
+static int
+sqlite3_native__on_cache_vfs_access(sqlite3_vfs *handle, const char *name, int flags, int *exists) {
+  sqlite3_native_cache_vfs_t *vfs = (sqlite3_native_cache_vfs_t *) handle;
+
+  int type = sqlite3_native__get_file_type_from_name(name);
+
+  char path[sizeof(sqlite3_native_path_t) + 16];
+  sqlite3_native__cache_path(vfs, type, path, sizeof(path));
+
+  uv_fs_t req;
+
+  int res = uv_fs_stat(NULL, &req, path, NULL);
+  uv_fs_req_cleanup(&req);
+
+  *exists = res >= 0;
+
+  return SQLITE_OK;
+}
+
+static js_value_t *
+sqlite3_native_cache_vfs_init(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 4;
+  js_value_t *argv[4];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 4);
+
+  uv_loop_t *loop;
+  err = js_get_env_loop(env, &loop);
+  assert(err == 0);
+
+  js_value_t *handle;
+
+  sqlite3_native_cache_vfs_t *vfs;
+  err = js_create_arraybuffer(env, sizeof(sqlite3_native_cache_vfs_t), (void **) &vfs, &handle);
+  assert(err == 0);
+
+  err = uv_sem_init(&vfs->done, 0);
+  assert(err == 0);
+
+  err = uv_mutex_init(&vfs->lock);
+  assert(err == 0);
+
+  uv_random_t random;
+  err = uv_random(loop, &random, vfs->name, sizeof(vfs->name), 0, NULL);
+  assert(err == 0);
+
+  vfs->name[sizeof(vfs->name) - 1] = '\0';
+
+  vfs->env = env;
+
+  err = js_create_reference(env, argv[0], 1, &vfs->ctx);
+  assert(err == 0);
+
+  err = js_get_value_string_utf8(env, argv[1], vfs->path, sizeof(vfs->path), NULL);
+  assert(err == 0);
+
+  uint32_t page_size;
+  err = js_get_value_uint32(env, argv[2], &page_size);
+  assert(err == 0);
+
+  vfs->page_size = (int) page_size;
+
+  err = js_create_threadsafe_function(env, argv[3], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_cache_miss_call, &vfs->on_miss);
+  assert(err == 0);
+
+  uv_fs_t req;
+
+  int res = uv_fs_open(NULL, &req, (char *) vfs->path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0644, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (res < 0) {
+    js_throw_errorf(env, NULL, "could not open %s: %s", vfs->path, uv_strerror(res));
+    return NULL;
+  }
+
+  vfs->fd = res;
+
+  res = uv_fs_fstat(NULL, &req, vfs->fd, NULL);
+  int64_t size = res < 0 ? 0 : req.statbuf.st_size;
+  uv_fs_req_cleanup(&req);
+
+  int64_t npages = (size + vfs->page_size - 1) / vfs->page_size;
+
+  vfs->bitmap_len = (size_t) ((npages + 7) / 8);
+  vfs->bitmap = calloc(vfs->bitmap_len ? vfs->bitmap_len : 1, 1);
+
+  char bitmap_path[sizeof(sqlite3_native_path_t) + 16];
+  snprintf(bitmap_path, sizeof(bitmap_path), "%s.map", (char *) vfs->path);
+
+  res = uv_fs_open(NULL, &req, bitmap_path, UV_FS_O_RDWR | UV_FS_O_CREAT, 0644, NULL);
+  uv_fs_req_cleanup(&req);
+
+  if (res < 0) {
+    js_throw_errorf(env, NULL, "could not open %s: %s", bitmap_path, uv_strerror(res));
+    return NULL;
+  }
+
+  vfs->bitmap_fd = res;
+
+  if (vfs->bitmap_len > 0) {
+    uv_buf_t buf = uv_buf_init((char *) vfs->bitmap, vfs->bitmap_len);
+
+    uv_fs_read(NULL, &req, vfs->bitmap_fd, &buf, 1, 0, NULL);
+    uv_fs_req_cleanup(&req);
+  }
+
+  vfs->handle = (sqlite3_vfs) {
+    1, // Version
+    sizeof(sqlite3_native_cache_file_t),
+    sizeof(sqlite3_native_path_t),
+    NULL,
+    vfs->name,
+    NULL,
+    sqlite3_native__on_cache_vfs_open,
+    sqlite3_native__on_cache_vfs_delete,
+    sqlite3_native__on_cache_vfs_access,
+    sqlite3_native__on_vfs_fullpathname,
+    sqlite3_native__on_vfs_dlopen,
+    sqlite3_native__on_vfs_dlerror,
+    sqlite3_native__on_vfs_dlsym,
+    sqlite3_native__on_vfs_dlclose,
+    sqlite3_native__on_vfs_randomness,
+    sqlite3_native__on_vfs_sleep,
+    sqlite3_native__on_vfs_current_time,
+  };
+
+  err = sqlite3_vfs_register(&vfs->handle, false);
+  assert(err == 0);
+
+  return handle;
+}
+
+// applyPages(handle, indices: Uint32Array, pages: Buffer, size: int64)
+//
+// Atomically patches pages into the cache file and resizes it. Pages become
+// present; on shrink, bits beyond the new size are cleared. Must only be
+// called while no statement is executing on the database.
+static js_value_t *
+sqlite3_native_cache_vfs_apply(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 4;
+  js_value_t *argv[4];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 4);
+
+  sqlite3_native_cache_vfs_t *vfs;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &vfs, NULL);
+  assert(err == 0);
+
+  uint32_t *indices;
+  size_t count;
+  err = js_get_typedarray_info(env, argv[1], NULL, (void **) &indices, &count, NULL, NULL);
+  assert(err == 0);
+
+  uint8_t *pages;
+  size_t pages_len;
+  err = js_get_typedarray_info(env, argv[2], NULL, (void **) &pages, &pages_len, NULL, NULL);
+  assert(err == 0);
+
+  int64_t size;
+  err = js_get_value_int64(env, argv[3], &size);
+  assert(err == 0);
+
+  if (pages_len < count * (size_t) vfs->page_size) {
+    js_throw_error(env, NULL, "pages buffer too small");
+    return NULL;
+  }
+
+  uv_mutex_lock(&vfs->lock);
+
+  uv_fs_t req;
+  int res = 0;
+
+  if (size >= 0) {
+    res = uv_fs_ftruncate(NULL, &req, vfs->fd, size, NULL);
+    uv_fs_req_cleanup(&req);
+
+    if (res >= 0) {
+      int64_t npages = (size + vfs->page_size - 1) / vfs->page_size;
+
+      sqlite3_native__cache_shrink_bitmap(vfs, npages);
+      res = sqlite3_native__cache_grow_bitmap(vfs, npages);
+    }
+  }
+
+  for (size_t i = 0; i < count && res >= 0; i++) {
+    int64_t index = indices[i];
+
+    uv_buf_t buf = uv_buf_init((char *) &pages[i * vfs->page_size], vfs->page_size);
+
+    res = uv_fs_write(NULL, &req, vfs->fd, &buf, 1, index * vfs->page_size, NULL);
+    uv_fs_req_cleanup(&req);
+
+    if (res >= 0) res = sqlite3_native__cache_set_page(vfs, index, false);
+  }
+
+  if (res >= 0) {
+    res = uv_fs_fsync(NULL, &req, vfs->fd, NULL);
+    uv_fs_req_cleanup(&req);
+  }
+
+  if (res >= 0) res = sqlite3_native__cache_flush_bitmap(vfs);
+
+  uv_mutex_unlock(&vfs->lock);
+
+  if (res < 0) {
+    js_throw_errorf(env, NULL, "applyPages failed: %s", uv_strerror(res));
+    return NULL;
+  }
+
+  return NULL;
+}
+
+static js_value_t *
+sqlite3_native_cache_vfs_invalidate(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 2;
+  js_value_t *argv[2];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 2);
+
+  sqlite3_native_cache_vfs_t *vfs;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &vfs, NULL);
+  assert(err == 0);
+
+  uint8_t *mask;
+  size_t mask_len;
+  err = js_get_typedarray_info(env, argv[1], NULL, (void **) &mask, &mask_len, NULL, NULL);
+  assert(err == 0);
+
+  uv_mutex_lock(&vfs->lock);
+
+  size_t len = mask_len < vfs->bitmap_len ? mask_len : vfs->bitmap_len;
+
+  for (size_t i = 0; i < len; i++) {
+    vfs->bitmap[i] &= ~mask[i];
+  }
+
+  // a cleared bit only ever causes a refetch, but it must hit disk before
+  // the caller persists the version it invalidated against
+  int res = sqlite3_native__cache_flush_bitmap(vfs);
+
+  uv_mutex_unlock(&vfs->lock);
+
+  if (res < 0) {
+    js_throw_errorf(env, NULL, "invalidatePages failed: %s", uv_strerror(res));
+    return NULL;
+  }
+
+  return NULL;
+}
+
+static js_value_t *
+sqlite3_native_cache_vfs_destroy(js_env_t *env, js_callback_info_t *info) {
+  int err;
+
+  size_t argc = 1;
+  js_value_t *argv[1];
+
+  err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
+  assert(err == 0);
+
+  assert(argc == 1);
+
+  sqlite3_native_cache_vfs_t *vfs;
+  err = js_get_arraybuffer_info(env, argv[0], (void **) &vfs, NULL);
+  assert(err == 0);
+
+  err = sqlite3_vfs_unregister(&vfs->handle);
+  assert(err == 0);
+
+  err = js_release_threadsafe_function(vfs->on_miss, js_threadsafe_function_release);
+  assert(err == 0);
+
+  err = js_delete_reference(env, vfs->ctx);
+  assert(err == 0);
+
+  uv_fs_t req;
+
+  uv_fs_close(NULL, &req, vfs->fd, NULL);
+  uv_fs_req_cleanup(&req);
+
+  uv_fs_close(NULL, &req, vfs->bitmap_fd, NULL);
+  uv_fs_req_cleanup(&req);
+
+  free(vfs->bitmap);
+  vfs->bitmap = NULL;
+
+  uv_sem_destroy(&vfs->done);
+  uv_mutex_destroy(&vfs->lock);
+
+  return NULL;
+}
+
 static void
 sqlite3_native__on_result_call(js_env_t *env, js_value_t *on_result, void *context, void *arg) {
   int err;
@@ -1397,6 +2168,11 @@ sqlite3_native_exports(js_env_t *env, js_value_t *exports) {
 
   V("vfsInit", sqlite3_native_vfs_init)
   V("vfsDestroy", sqlite3_native_vfs_destroy)
+
+  V("cacheVfsInit", sqlite3_native_cache_vfs_init)
+  V("cacheVfsApply", sqlite3_native_cache_vfs_apply)
+  V("cacheVfsInvalidate", sqlite3_native_cache_vfs_invalidate)
+  V("cacheVfsDestroy", sqlite3_native_cache_vfs_destroy)
 
   V("init", sqlite3_native_init)
   V("open", sqlite3_native_open)

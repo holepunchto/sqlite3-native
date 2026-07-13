@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "bare-compat-napi": "^1.0.0",
+    "bare-fs": "^4.0.0",
     "brittle": "^3.4.0",
     "cmake-bare": "^1.1.15",
     "cmake-fetch": "^1.2.0",
