@@ -9,7 +9,7 @@ find_package(cmake-npm REQUIRED PATHS node_modules/cmake-npm)
 
 project(sqlite3_native C)
 
-fetch_package("https://sqlite.org/2024/sqlite-amalgamation-3540100.zip" SOURCE_DIR sqlite3)
+fetch_package("https://sqlite.org/2026/sqlite-amalgamation-3540100.zip" SOURCE_DIR sqlite3)
 
 add_library(sqlite3)
 
