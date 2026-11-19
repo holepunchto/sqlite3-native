@@ -125,6 +125,7 @@ typedef struct {
 
   js_ref_t *result;
   uint32_t i;
+  bool cancelled;
 
   int len;
   char **rows;
@@ -222,6 +223,24 @@ sqlite3_native__get_file_type_from_name(const char *name) {
 }
 
 static int
+sqlite3_native__call_threadsafe_function(js_threadsafe_function_t *function, void *data, uv_sem_t *done) {
+  int err;
+
+  err = js_acquire_threadsafe_function(function);
+  if (err < 0) return err;
+
+  err = js_call_threadsafe_function(function, data, js_threadsafe_function_blocking);
+  if (err < 0) return err;
+
+  uv_sem_wait(done);
+
+  err = js_release_threadsafe_function(function, js_threadsafe_function_release);
+  assert(err == 0);
+
+  return 0;
+}
+
+static int
 sqlite3_native__error_from(js_env_t *env, js_value_t *value, int code) {
   int err;
 
@@ -268,6 +287,14 @@ sqlite3_native__on_vfs_read_call(js_env_t *env, js_value_t *on_read, void *conte
 
   sqlite3_native_read_t *data = (sqlite3_native_read_t *) arg;
 
+  if (env == NULL) {
+    data->status = SQLITE_IOERR_READ;
+
+    uv_sem_post(&vfs->done);
+
+    return;
+  }
+
   js_value_t *ctx;
   err = js_get_reference_value(env, vfs->ctx, &ctx);
   assert(err == 0);
@@ -305,10 +332,8 @@ sqlite3_native__on_vfs_read(sqlite3_file *handle, void *buf, int len, sqlite3_in
     offset
   };
 
-  err = js_call_threadsafe_function(vfs->on_read, (void *) &data, js_threadsafe_function_blocking);
-  assert(err == 0);
-
-  uv_sem_wait(&vfs->done);
+  err = sqlite3_native__call_threadsafe_function(vfs->on_read, (void *) &data, &vfs->done);
+  if (err < 0) return SQLITE_IOERR_READ;
 
   return data.status;
 }
@@ -341,6 +366,14 @@ sqlite3_native__on_vfs_write_call(js_env_t *env, js_value_t *on_write, void *con
   sqlite3_native_vfs_t *vfs = (sqlite3_native_vfs_t *) context;
 
   sqlite3_native_write_t *data = (sqlite3_native_write_t *) arg;
+
+  if (env == NULL) {
+    data->status = SQLITE_IOERR_WRITE;
+
+    uv_sem_post(&vfs->done);
+
+    return;
+  }
 
   js_value_t *ctx;
   err = js_get_reference_value(env, vfs->ctx, &ctx);
@@ -379,10 +412,8 @@ sqlite3_native__on_vfs_write(sqlite3_file *handle, const void *buf, int len, sql
     offset
   };
 
-  err = js_call_threadsafe_function(vfs->on_write, (void *) &data, js_threadsafe_function_blocking);
-  assert(err == 0);
-
-  uv_sem_wait(&vfs->done);
+  err = sqlite3_native__call_threadsafe_function(vfs->on_write, (void *) &data, &vfs->done);
+  if (err < 0) return SQLITE_IOERR_WRITE;
 
   return data.status;
 }
@@ -433,6 +464,14 @@ sqlite3_native__on_vfs_size_call(js_env_t *env, js_value_t *on_size, void *conte
 
   sqlite3_native_size_t *data = (sqlite3_native_size_t *) arg;
 
+  if (env == NULL) {
+    data->status = SQLITE_IOERR_FSTAT;
+
+    uv_sem_post(&vfs->done);
+
+    return;
+  }
+
   js_value_t *ctx;
   err = js_get_reference_value(env, vfs->ctx, &ctx);
   assert(err == 0);
@@ -461,10 +500,8 @@ sqlite3_native__on_vfs_size(sqlite3_file *handle, sqlite_int64 *size) {
     file,
   };
 
-  err = js_call_threadsafe_function(vfs->on_size, (void *) &data, js_threadsafe_function_blocking);
-  assert(err == 0);
-
-  uv_sem_wait(&vfs->done);
+  err = sqlite3_native__call_threadsafe_function(vfs->on_size, (void *) &data, &vfs->done);
+  if (err < 0) return SQLITE_IOERR_FSTAT;
 
   if (data.status != SQLITE_OK) return data.status;
 
@@ -564,6 +601,14 @@ sqlite3_native__on_vfs_delete_call(js_env_t *env, js_value_t *on_delete, void *c
 
   sqlite3_native_delete_t *data = (sqlite3_native_delete_t *) arg;
 
+  if (env == NULL) {
+    data->status = SQLITE_IOERR_DELETE;
+
+    uv_sem_post(&vfs->done);
+
+    return;
+  }
+
   js_value_t *ctx;
   err = js_get_reference_value(env, vfs->ctx, &ctx);
   assert(err == 0);
@@ -594,10 +639,8 @@ sqlite3_native__on_vfs_delete(sqlite3_vfs *handle, const char *name, int sync) {
     sync
   };
 
-  err = js_call_threadsafe_function(vfs->on_delete, (void *) &data, js_threadsafe_function_blocking);
-  assert(err == 0);
-
-  uv_sem_wait(&vfs->done);
+  err = sqlite3_native__call_threadsafe_function(vfs->on_delete, (void *) &data, &vfs->done);
+  if (err < 0) return SQLITE_IOERR_DELETE;
 
   return data.status;
 }
@@ -638,6 +681,14 @@ sqlite3_native__on_vfs_access_call(js_env_t *env, js_value_t *on_access, void *c
 
   sqlite3_native_access_t *data = (sqlite3_native_access_t *) arg;
 
+  if (env == NULL) {
+    data->status = SQLITE_IOERR_ACCESS;
+
+    uv_sem_post(&vfs->done);
+
+    return;
+  }
+
   js_value_t *ctx;
   err = js_get_reference_value(env, vfs->ctx, &ctx);
   assert(err == 0);
@@ -668,10 +719,8 @@ sqlite3_native__on_vfs_access(sqlite3_vfs *handle, const char *name, int flags, 
     flags
   };
 
-  err = js_call_threadsafe_function(vfs->on_access, (void *) &data, js_threadsafe_function_blocking);
-  assert(err == 0);
-
-  uv_sem_wait(&vfs->done);
+  err = sqlite3_native__call_threadsafe_function(vfs->on_access, (void *) &data, &vfs->done);
+  if (err < 0) return SQLITE_IOERR_ACCESS;
 
   if (data.status != SQLITE_OK) return data.status;
 
@@ -888,6 +937,14 @@ sqlite3_native__on_result_call(js_env_t *env, js_value_t *on_result, void *conte
 
   sqlite3_native_exec_t *data = (sqlite3_native_exec_t *) arg;
 
+  if (env == NULL) {
+    data->cancelled = true;
+
+    uv_sem_post(&data->done);
+
+    return;
+  }
+
   js_value_t *result;
   err = js_get_reference_value(env, data->result, &result);
   assert(err == 0);
@@ -948,12 +1005,10 @@ sqlite3_native__on_result(void *arg, int len, char **rows, char **columns) {
   data->rows = rows;
   data->columns = columns;
 
-  err = js_call_threadsafe_function(data->db->on_result, (void *) data, js_threadsafe_function_blocking);
-  assert(err == 0);
+  err = sqlite3_native__call_threadsafe_function(data->db->on_result, (void *) data, &data->done);
+  if (err < 0) return SQLITE_ABORT;
 
-  uv_sem_wait(&data->done);
-
-  return SQLITE_OK;
+  return data->cancelled ? SQLITE_ABORT : SQLITE_OK;
 }
 
 static js_value_t *
@@ -1245,6 +1300,7 @@ sqlite3_native_exec(js_env_t *env, js_callback_info_t *info) {
   req->db = db;
   req->query = query;
   req->i = 0;
+  req->cancelled = false;
 
   req->handle.data = (void *) req;
 
