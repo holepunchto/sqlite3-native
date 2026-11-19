@@ -99,7 +99,8 @@ typedef struct {
 
   sqlite3_native_t *db;
 
-  js_deferred_t *deferred;
+  js_ref_t *ctx;
+  js_ref_t *cb;
 
   sqlite3_native_path_t name;
   sqlite3_native_vfs_t *vfs;
@@ -111,7 +112,8 @@ typedef struct {
 
   sqlite3_native_t *db;
 
-  js_deferred_t *deferred;
+  js_ref_t *ctx;
+  js_ref_t *cb;
 } sqlite3_native_close_t;
 
 typedef struct {
@@ -119,7 +121,8 @@ typedef struct {
 
   sqlite3_native_t *db;
 
-  js_deferred_t *deferred;
+  js_ref_t *ctx;
+  js_ref_t *cb;
 
   utf8_t *query;
 
@@ -141,7 +144,8 @@ typedef struct {
 
   sqlite3_native_t *db;
 
-  js_deferred_t *deferred;
+  js_ref_t *ctx;
+  js_ref_t *cb;
 
   utf8_t *path;
   utf8_t *entry;
@@ -251,6 +255,56 @@ sqlite3_native__error_from(js_env_t *env, js_value_t *value, int code) {
   if (type == js_null || type == js_undefined) return SQLITE_OK;
 
   return code;
+}
+
+static js_value_t *
+sqlite3_native__create_error(js_env_t *env, char *error) {
+  int err;
+
+  js_value_t *message;
+  err = js_create_string_utf8(env, (utf8_t *) error, -1, &message);
+  assert(err == 0);
+
+  sqlite3_free(error);
+
+  js_value_t *result;
+  err = js_create_error(env, NULL, message, &result);
+  assert(err == 0);
+
+  return result;
+}
+
+static void
+sqlite3_native__call_back(js_env_t *env, js_ref_t *ctx_ref, js_ref_t *cb_ref, js_value_t *error, js_value_t *result) {
+  int err;
+
+  js_value_t *ctx;
+  err = js_get_reference_value(env, ctx_ref, &ctx);
+  assert(err == 0);
+
+  js_value_t *cb;
+  err = js_get_reference_value(env, cb_ref, &cb);
+  assert(err == 0);
+
+  err = js_delete_reference(env, ctx_ref);
+  assert(err == 0);
+
+  err = js_delete_reference(env, cb_ref);
+  assert(err == 0);
+
+  if (error == NULL) {
+    err = js_get_null(env, &error);
+    assert(err == 0);
+  }
+
+  if (result == NULL) {
+    err = js_get_undefined(env, &result);
+    assert(err == 0);
+  }
+
+  js_value_t *argv[2] = {error, result};
+
+  js_call_function_with_checkpoint(env, ctx, cb, 2, argv, NULL);
 }
 
 static int
@@ -1043,12 +1097,7 @@ sqlite3_native__on_after_open(uv_work_t *handle, int status) {
   err = js_open_handle_scope(env, &scope);
   assert(err == 0);
 
-  js_value_t *result;
-  err = js_get_undefined(env, &result);
-  assert(err == 0);
-
-  err = js_resolve_deferred(env, req->deferred, result);
-  assert(err == 0);
+  sqlite3_native__call_back(env, req->ctx, req->cb, NULL, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -1075,13 +1124,13 @@ static js_value_t *
 sqlite3_native_open(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 4;
-  js_value_t *argv[4];
+  size_t argc = 6;
+  js_value_t *argv[6];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 4);
+  assert(argc == 6);
 
   uv_loop_t *loop;
   err = js_get_env_loop(env, &loop);
@@ -1113,14 +1162,16 @@ sqlite3_native_open(js_env_t *env, js_callback_info_t *info) {
 
   req->handle.data = (void *) req;
 
-  js_value_t *promise;
-  err = js_create_promise(env, &req->deferred, &promise);
+  err = js_create_reference(env, argv[4], 1, &req->ctx);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[5], 1, &req->cb);
   assert(err == 0);
 
   err = uv_queue_work(loop, &req->handle, sqlite3_native__on_before_open, sqlite3_native__on_after_open);
   assert(err == 0);
 
-  return promise;
+  return NULL;
 }
 
 static void
@@ -1137,17 +1188,12 @@ sqlite3_native__on_after_close(uv_work_t *handle, int status) {
   err = js_open_handle_scope(env, &scope);
   assert(err == 0);
 
-  js_value_t *result;
-  err = js_get_undefined(env, &result);
+  err = js_release_threadsafe_function(db->on_result, js_threadsafe_function_release);
   assert(err == 0);
 
-  err = js_resolve_deferred(env, req->deferred, result);
-  assert(err == 0);
+  sqlite3_native__call_back(env, req->ctx, req->cb, NULL, NULL);
 
   err = js_close_handle_scope(env, scope);
-  assert(err == 0);
-
-  err = js_release_threadsafe_function(db->on_result, js_threadsafe_function_release);
   assert(err == 0);
 
   free(req);
@@ -1167,13 +1213,13 @@ static js_value_t *
 sqlite3_native_close(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 1;
-  js_value_t *argv[1];
+  size_t argc = 3;
+  js_value_t *argv[3];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 1);
+  assert(argc == 3);
 
   uv_loop_t *loop;
   err = js_get_env_loop(env, &loop);
@@ -1189,14 +1235,16 @@ sqlite3_native_close(js_env_t *env, js_callback_info_t *info) {
 
   req->handle.data = (void *) req;
 
-  js_value_t *promise;
-  err = js_create_promise(env, &req->deferred, &promise);
+  err = js_create_reference(env, argv[1], 1, &req->ctx);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[2], 1, &req->cb);
   assert(err == 0);
 
   err = uv_queue_work(loop, &req->handle, sqlite3_native__on_before_close, sqlite3_native__on_after_close);
   assert(err == 0);
 
-  return promise;
+  return NULL;
 }
 
 static void
@@ -1214,31 +1262,17 @@ sqlite3_native__on_after_exec(uv_work_t *handle, int status) {
   assert(err == 0);
 
   js_value_t *result;
-
-  if (req->error) {
-    js_value_t *message;
-    err = js_create_string_utf8(env, (utf8_t *) req->error, -1, &message);
-    assert(err == 0);
-
-    sqlite3_free(req->error);
-
-    err = js_create_error(env, NULL, message, &result);
-    assert(err == 0);
-
-    err = js_reject_deferred(env, req->deferred, result);
-    assert(err == 0);
-  } else {
-    err = js_get_reference_value(env, req->result, &result);
-    assert(err == 0);
-
-    err = js_resolve_deferred(env, req->deferred, result);
-    assert(err == 0);
-  }
-
-  err = js_close_handle_scope(env, scope);
+  err = js_get_reference_value(env, req->result, &result);
   assert(err == 0);
 
   err = js_delete_reference(env, req->result);
+  assert(err == 0);
+
+  js_value_t *error = req->error ? sqlite3_native__create_error(env, req->error) : NULL;
+
+  sqlite3_native__call_back(env, req->ctx, req->cb, error, result);
+
+  err = js_close_handle_scope(env, scope);
   assert(err == 0);
 
   free(req);
@@ -1264,13 +1298,13 @@ static js_value_t *
 sqlite3_native_exec(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 2;
-  js_value_t *argv[2];
+  size_t argc = 4;
+  js_value_t *argv[4];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 2);
+  assert(argc == 4);
 
   uv_loop_t *loop;
   err = js_get_env_loop(env, &loop);
@@ -1307,14 +1341,16 @@ sqlite3_native_exec(js_env_t *env, js_callback_info_t *info) {
   err = js_create_reference(env, result, 1, &req->result);
   assert(err == 0);
 
-  js_value_t *promise;
-  err = js_create_promise(env, &req->deferred, &promise);
+  err = js_create_reference(env, argv[2], 1, &req->ctx);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[3], 1, &req->cb);
   assert(err == 0);
 
   err = uv_queue_work(loop, &req->handle, sqlite3_native__on_before_exec, sqlite3_native__on_after_exec);
   assert(err == 0);
 
-  return promise;
+  return NULL;
 }
 
 static void
@@ -1331,27 +1367,9 @@ sqlite3_native__on_after_load_extension(uv_work_t *handle, int status) {
   err = js_open_handle_scope(env, &scope);
   assert(err == 0);
 
-  js_value_t *result;
+  js_value_t *error = req->error ? sqlite3_native__create_error(env, req->error) : NULL;
 
-  if (req->error) {
-    js_value_t *message;
-    err = js_create_string_utf8(env, (utf8_t *) req->error, -1, &message);
-    assert(err == 0);
-
-    sqlite3_free(req->error);
-
-    err = js_create_error(env, NULL, message, &result);
-    assert(err == 0);
-
-    err = js_reject_deferred(env, req->deferred, result);
-    assert(err == 0);
-  } else {
-    err = js_get_undefined(env, &result);
-    assert(err == 0);
-
-    err = js_resolve_deferred(env, req->deferred, result);
-    assert(err == 0);
-  }
+  sqlite3_native__call_back(env, req->ctx, req->cb, error, NULL);
 
   err = js_close_handle_scope(env, scope);
   assert(err == 0);
@@ -1373,13 +1391,13 @@ static js_value_t *
 sqlite3_native_load_extension(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 3;
-  js_value_t *argv[3];
+  size_t argc = 5;
+  js_value_t *argv[5];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  assert(argc == 3);
+  assert(argc == 5);
 
   uv_loop_t *loop;
   err = js_get_env_loop(env, &loop);
@@ -1428,14 +1446,16 @@ sqlite3_native_load_extension(js_env_t *env, js_callback_info_t *info) {
 
   req->handle.data = (void *) req;
 
-  js_value_t *promise;
-  err = js_create_promise(env, &req->deferred, &promise);
+  err = js_create_reference(env, argv[3], 1, &req->ctx);
+  assert(err == 0);
+
+  err = js_create_reference(env, argv[4], 1, &req->cb);
   assert(err == 0);
 
   err = uv_queue_work(loop, &req->handle, sqlite3_native__on_before_load_extension, sqlite3_native__on_after_load_extension);
   assert(err == 0);
 
-  return promise;
+  return NULL;
 }
 
 static js_value_t *
