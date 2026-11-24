@@ -915,7 +915,7 @@ sqlite3_native_vfs_init(js_env_t *env, js_callback_info_t *info) {
   err = js_create_threadsafe_function(env, argv[5], sqlite3_native__queue_limit, 1, NULL, NULL, (void *) vfs, sqlite3_native__on_vfs_delete_call, &vfs->on_delete);
   assert(err == 0);
 
-  vfs->handle = (sqlite3_vfs) {
+  vfs->handle = (sqlite3_vfs){
     1, // Version
     sizeof(sqlite3_native_file_t),
     sizeof(sqlite3_native_path_t),
@@ -1144,9 +1144,27 @@ sqlite3_native_open(js_env_t *env, js_callback_info_t *info) {
   err = js_get_arraybuffer_info(env, argv[1], (void **) &vfs, NULL);
   assert(err == 0);
 
+  size_t name_len;
+  err = js_get_value_string_utf8(env, argv[2], NULL, 0, &name_len);
+  assert(err == 0);
+
+  if (name_len >= sizeof(sqlite3_native_path_t)) {
+    err = js_throw_error(env, uv_err_name(UV_ENAMETOOLONG), uv_strerror(UV_ENAMETOOLONG));
+    assert(err == 0);
+
+    return NULL;
+  }
+
   sqlite3_native_path_t name;
   err = js_get_value_string_utf8(env, argv[2], name, sizeof(name), NULL);
   assert(err == 0);
+
+  if (strlen((char *) name) != name_len) {
+    err = js_throw_type_error(env, NULL, "Name must not contain null bytes");
+    assert(err == 0);
+
+    return NULL;
+  }
 
   bool extensions;
   err = js_get_value_bool(env, argv[3], &extensions);
@@ -1424,8 +1442,9 @@ sqlite3_native_load_extension(js_env_t *env, js_callback_info_t *info) {
   err = js_typeof(env, argv[2], &entry_type);
   assert(err == 0);
 
+  size_t entry_len = 0;
+
   if (entry_type == js_string) {
-    size_t entry_len;
     err = js_get_value_string_utf8(env, argv[2], NULL, 0, &entry_len);
     assert(err == 0);
 
@@ -1435,6 +1454,16 @@ sqlite3_native_load_extension(js_env_t *env, js_callback_info_t *info) {
 
     err = js_get_value_string_utf8(env, argv[2], entry, entry_len, NULL);
     assert(err == 0);
+  }
+
+  if (strlen((char *) path) != path_len - 1 /* NULL */ || (entry != NULL && strlen((char *) entry) != entry_len - 1 /* NULL */)) {
+    free(path);
+    free(entry);
+
+    err = js_throw_type_error(env, NULL, "Path and entry point must not contain null bytes");
+    assert(err == 0);
+
+    return NULL;
   }
 
   sqlite3_native_load_extension_t *req = malloc(sizeof(sqlite3_native_load_extension_t));
