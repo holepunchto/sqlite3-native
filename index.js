@@ -24,6 +24,8 @@ function work(fn, ...args) {
 
 module.exports = exports = class SQLite3 extends ReadyResource {
   constructor(opts = {}) {
+    validateNoNullBytes(opts.name, 'name')
+
     const { name = 'sqlite3.db', vfs = new MemoryVFS(), extensions = false } = opts
 
     super()
@@ -48,6 +50,10 @@ module.exports = exports = class SQLite3 extends ReadyResource {
   async loadExtension(path, entry = null) {
     if (this._extensions === false) throw new Error('Extension loading is disabled')
 
+    validateNoNullBytes(path, 'path')
+
+    if (entry !== null) validateNoNullBytes(entry, 'entry')
+
     if (this.opened === false) await this.ready()
 
     return work(binding.loadExtension, this._handle, path, entry)
@@ -61,6 +67,13 @@ module.exports = exports = class SQLite3 extends ReadyResource {
     if (this.opened) await work(binding.close, this._handle)
 
     this._vfs.destroy()
+  }
+}
+
+// The value is passed on as a C string, so a NUL would cut it short.
+function validateNoNullBytes(value, name) {
+  if (typeof value === 'string' && value.includes('\0')) {
+    throw new TypeError(`The "${name}" argument must not contain null bytes`)
   }
 }
 

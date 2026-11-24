@@ -1,4 +1,5 @@
 const test = require('brittle')
+const SQLite3 = require('.')
 const { create } = require('./test/helpers')
 
 test('can open a db', async (t) => {
@@ -68,4 +69,18 @@ test('bigger index', async (t) => {
   t.is(result.length, 1)
   t.alike(result[0].columns, ['NAME'])
   t.alike(result[0].rows, ['mr-10'])
+})
+
+test('name with a NUL', (t) => {
+  t.exception.all(() => new SQLite3({ name: 'a.db\0x' }), TypeError)
+})
+
+test('loadExtension with a NUL', async (t) => {
+  const sql = new SQLite3({ extensions: true })
+  t.teardown(() => sql.close())
+
+  await sql.ready()
+
+  await t.exception.all(sql.loadExtension('/definitely/not/real.so\0x'), TypeError)
+  await t.exception.all(sql.loadExtension('/definitely/not/real.so', 'init\0x'), TypeError)
 })
