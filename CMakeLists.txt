@@ -1,14 +1,14 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 4.0)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(cmake-bare REQUIRED PATHS node_modules/cmake-bare)
 find_package(cmake-fetch REQUIRED PATHS node_modules/cmake-fetch)
 find_package(cmake-napi REQUIRED PATHS node_modules/cmake-napi)
-find_package(cmake-npm REQUIRED PATHS node_modules/cmake-npm)
 
 project(sqlite3_native C)
 
+fetch_package("github:holepunchto/libnapish#8cbfe78")
 fetch_package("https://sqlite.org/2026/sqlite-amalgamation-3540100.zip" SOURCE_DIR sqlite3)
 
 add_library(sqlite3)
@@ -49,14 +49,8 @@ target_sources(
 
 target_link_libraries(
   ${sqlite3_native_node}
+  PRIVATE
+    napish::static
   PUBLIC
     sqlite3
-)
-
-resolve_node_module(bare-compat-napi compat)
-
-target_include_directories(
-  ${sqlite3_native_node}
-  PRIVATE
-    "${compat}/include"
 )
